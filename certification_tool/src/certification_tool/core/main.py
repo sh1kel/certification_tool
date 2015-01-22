@@ -1,14 +1,12 @@
 import sys
-import pprint
 import os.path
 import logging.config
 from optparse import OptionParser
 
 import yaml
-import fuel_rest_api
-import cert_script as cs
 
-sys.path.insert(0, '../lib/requests')
+from certification_tool.core import fuel_rest_api
+from certification_tool.core import cert_script as cs
 
 
 DEFAULT_CONFIG_PATH = 'config.yaml'
@@ -62,6 +60,10 @@ def parse_command_line():
                            'will not be sent',
                       dest='email', default=None)
 
+    parser.add_option('-q', '--quiet',
+                      help="don't print results to console",
+                      dest='quiet', default=False, action='store_true')
+
     options, _ = parser.parse_args()
 
     return options.__dict__
@@ -107,6 +109,38 @@ def deploy_single_cluster(args, clusters, conn, logger, auto_delete=True,
 
     cs.deploy_cluster(conn, cluster, additional_cfg=additional_cfg)
     return 0
+
+
+def run_tests(conn, config, clusters, saved_cfg, test_run_timeout, logger):
+    results = []
+    tests_cfg = config['tests']['tests']
+    for _, test_cfg in tests_cfg.iteritems():
+        cluster = clusters[test_cfg['cluster']]
+
+        tests_to_run = test_cfg['suits']
+
+        cont_man = cs.make_cluster(conn,
+                                   cluster,
+                                   auto_delete=True,
+                                   additional_cfg=saved_cfg)
+
+        with cont_man as cluster_id:
+            results = cs.run_all_tests(conn,
+                                       cluster_id,
+                                       test_run_timeout,
+                                       tests_to_run)
+
+            for testset in results:
+                results.extend(testset['tests'])
+
+            failed_tests = [test for test in results
+                            if test['status'] == 'failure']
+
+            for test in failed_tests:
+                logger.error(test['name'])
+                logger.error(" " * 10 + 'Failure message: '
+                             + test['message'])
+    return results
 
 
 def main():
@@ -172,38 +206,19 @@ def main():
                 cs.store_config(cfg, cfg_fname)
         return 0
 
-    tests_cfg = config['tests']['tests']
-    for _, test_cfg in tests_cfg.iteritems():
-        cluster = clusters[test_cfg['cluster']]
+    results = run_tests(conn,
+                        config,
+                        clusters,
+                        saved_cfg,
+                        test_run_timeout,
+                        logger)
 
-        tests_to_run = test_cfg['suits']
+    email_for_results = args.get("email")
+    if email_for_results:
+        cs.send_results(email_for_results, results)
 
-        cont_man = cs.make_cluster(conn,
-                                   cluster,
-                                   auto_delete=True,
-                                   additional_cfg=saved_cfg)
-
-        with cont_man as cluster_id:
-            results = cs.run_all_tests(conn,
-                                       cluster_id,
-                                       test_run_timeout,
-                                       tests_to_run)
-
-            tests = []
-            for testset in results:
-                tests.extend(testset['tests'])
-
-            failed_tests = [test for test in tests
-                            if test['status'] == 'failure']
-
-            for test in failed_tests:
-                logger.debug(test['name'])
-                logger.debug(" "*10 + 'Failure message: '
-                             + test['message'])
-
-            email_for_results = args.get("email")
-            if email_for_results:
-                cs.send_results(email_for_results, tests)
+    # if not args.quiet:
+    #     print_results(results)
 
     return 0
 

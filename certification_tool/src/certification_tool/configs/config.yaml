@@ -6,6 +6,11 @@ tests:
             suits:
               - sanity
               - smoke
+        integration_tests:
+            cluster: empty
+            suits:
+              - integration
+
 
 deploy_timeout: 3600
 discovery_timeout: 600

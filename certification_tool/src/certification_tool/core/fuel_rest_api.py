@@ -4,15 +4,13 @@ import time
 import urllib2
 import pprint
 from functools import partial, wraps
+
 import netaddr
-
-
-import type_check
-from certification_script.cert_script import *
-
 
 from keystoneclient.v2_0 import Client as keystoneclient
 from keystoneclient import exceptions
+
+from certification_tool.core import type_check
 
 
 logger = None
@@ -258,7 +256,7 @@ class Node(RestObj):
             for net in interface['assigned_networks']:
                 network_ids[net['name']] = net['id']
 
-        #transform mappings
+        # transform mappings
         new_assigned_networks = {}
 
         for dev_name, networks in mapping.items():
@@ -328,8 +326,11 @@ class Cluster(RestObj):
     get_status = GET('api/clusters/{id}')
     delete = DELETE('api/clusters/{id}')
     get_tasks_status = GET("api/tasks?tasks={id}")
-    get_networks = GET('api/clusters/{id}/network_configuration/{net_provider}')
-    configure_networks = PUT('api/clusters/{id}/network_configuration/{net_provider}')
+    get_networks = GET(
+        'api/clusters/{id}/network_configuration/{net_provider}')
+
+    configure_networks = PUT(
+        'api/clusters/{id}/network_configuration/{net_provider}')
 
     _get_nodes = GET('api/nodes?cluster_id={id}')
 
@@ -413,7 +414,8 @@ class Cluster(RestObj):
             # net_mapping = {}
             # for net_description in net_descriptions['networks']:
             #     print net_description + "!!!!!!!!111one"
-            #     net_mapping[net_descriptions[net_description["name"]]] = net_descriptions
+            #     net_mapping[net_descriptions\
+            #            [net_description["name"]]] = net_descriptions
             net_mapping = net_descriptions['networks']
 
             print "!!!!!!!!!!!!!!!!!!"

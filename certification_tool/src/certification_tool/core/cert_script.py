@@ -1,6 +1,5 @@
 import time
 import glob
-import pprint
 import os.path
 import pkgutil
 import smtplib
@@ -11,8 +10,8 @@ from email.mime.text import MIMEText
 
 import yaml
 
-import fuel_rest_api
-from tests import base
+from certification_tool.core import fuel_rest_api
+from certification_tool.core.test_adapters import base
 
 
 logger = None
@@ -26,10 +25,10 @@ def set_logger(log):
 def find_node_by_requirements(nodes, requirements):
     GB = 1024 * 1024 * 1024
     TOO_LARGE_NUMBER = 1000 ** 3
-    
+
     min_cpu = requirements.get('cpu_count_min', 0)
     max_cpu = requirements.get('cpu_count_max', TOO_LARGE_NUMBER)
-    
+
     min_hd = requirements.get('hd_size_min', 0)
     max_hd = requirements.get('hd_size_max', TOO_LARGE_NUMBER)
 
@@ -118,7 +117,6 @@ def find_test_classes():
 
 def run_all_tests(conn, cluster_id, timeout, tests_to_run):
     test_classes = find_test_classes()
-    print test_classes
     results = []
     for test_class in test_classes:
         test_class_inst = test_class(conn, cluster_id, timeout)
@@ -181,7 +179,7 @@ def deploy_cluster(conn, cluster_desc, additional_cfg=None):
             cluster.add_node(node, node_desc['roles'])
 
     if additional_cfg is not None:
-        # TODO: update network from this call 
+        # TODO: update network from this call
         # can be merged with cluster.set_networks above
         update_cluster(cluster, additional_cfg)
 
@@ -205,25 +203,29 @@ def delete_all_clusters(conn):
 
 
 @contextlib.contextmanager
-def make_cluster(conn, cluster, auto_delete=False, debug=False, delete=True, additional_cfg=None):
-    if auto_delete:
-        for cluster_obj in fuel_rest_api.get_all_clusters(conn):
-            if cluster_obj.name == cluster['name']:
-                cluster_obj.delete()
-                wd = fuel_rest_api.with_timeout(60, "Wait cluster deleted")
-                wd(lambda co: not co.check_exists())(cluster_obj)
-
-    c = deploy_cluster(conn, cluster, additional_cfg)
-    nodes = list(c.get_nodes())
-    c.nodes = fuel_rest_api.NodeList(nodes)
-    try:
-        yield c
-    except Exception as _:
-        if not debug and delete:
-            c.delete()
+def make_cluster(conn, cluster, auto_delete=False, debug=False, delete=True,
+                 additional_cfg=None):
+    if cluster == 'empty':
+        yield None
     else:
-        if delete:
-            c.delete()
+        if auto_delete:
+            for cluster_obj in fuel_rest_api.get_all_clusters(conn):
+                if cluster_obj.name == cluster['name']:
+                    cluster_obj.delete()
+                    wd = fuel_rest_api.with_timeout(60, "Wait cluster deleted")
+                    wd(lambda co: not co.check_exists())(cluster_obj)
+
+        c = deploy_cluster(conn, cluster, additional_cfg)
+        nodes = list(c.get_nodes())
+        c.nodes = fuel_rest_api.NodeList(nodes)
+        try:
+            yield c
+        except Exception:
+            if not debug and delete:
+                c.delete()
+        else:
+            if delete:
+                c.delete()
 
 
 def with_cluster(template_name, tear_down=True, **params):
@@ -279,13 +281,13 @@ def load_config_from_fuel(conn, cluster_id):
             cur_node = 'node{}'.format(cnt)
             cnode = status['nodes'][cur_node] = {}
 
-            #cnode['requirements'] = {}
-            #cnode['roles'] = node['roles']
+            # cnode['requirements'] = {}
+            # cnode['roles'] = node['roles']
             cnode['network_data'] = node['network_data']
             cnode['main_mac'] = node['mac']
 
-            #if 'controller' in cnode['roles']:
-            #    cnode['dns_name'] = 'controller' + str(cnt)
+            # if 'controller' in cnode['roles']:
+            #     cnode['dns_name'] = 'controller' + str(cnt)
 
     status['timeout'] = 3600
 
