@@ -1,7 +1,6 @@
-import sys
 import os.path
 import logging.config
-from optparse import OptionParser
+from argparse import ArgumentParser
 
 import yaml
 
@@ -9,7 +8,9 @@ from certification_tool.core import fuel_rest_api
 from certification_tool.core import cert_script as cs
 
 
-DEFAULT_CONFIG_PATH = 'config.yaml'
+import certification_tool
+cert_dir = os.path.dirname(certification_tool.__file__)
+DEFAULT_CONFIG_PATH = os.path.join(cert_dir, "configs", "config.yaml")
 
 
 def parse_config(cfg_path):
@@ -18,66 +19,63 @@ def parse_config(cfg_path):
 
 
 def parse_command_line():
-    parser = OptionParser("usage: %prog [options]")
+    parser = ArgumentParser("usage: %prog [options] FUEL_URL")
 
-    parser.add_option('-p', '--password',
-                      help='password for email', default=None)
+    parser.add_argument('-p', '--password',
+                        help='password for email', default=None)
 
-    parser.add_option('-c', '--config',
-                      help='config file path', default=DEFAULT_CONFIG_PATH)
+    parser.add_argument('-c', '--config',
+                        help='config file path', default=DEFAULT_CONFIG_PATH)
 
-    parser.add_option('-u', '--fuelurl',
-                      help='fuel rest url',
-                      default="http://172.18.201.16:8000/")
+    parser.add_argument('fuelurl', help='fuel rest url', metavar="FUEL_URL")
 
-    parser.add_option('-d', '--deploy-only',
-                      help='only deploy cluster',
-                      metavar="CONFIG_FILE",
-                      dest="deploy_only")
+    parser.add_argument('-d', '--deploy-only',
+                        help='only deploy cluster',
+                        metavar="CONFIG_FILE",
+                        dest="deploy_only")
 
-    parser.add_option('-s', '--save-config',
-                      help='save network configuration',
-                      metavar='CLUSTER_NAME',
-                      dest="save_config", default=None)
+    parser.add_argument('-s', '--save-config',
+                        help='save network configuration',
+                        metavar='CLUSTER_NAME',
+                        dest="save_config", default=None)
 
-    parser.add_option('-r', '--reuse-config',
-                      help='reuse previously stored network configuration',
-                      dest="reuse_config", action="store_true",
-                      default=False)
+    parser.add_argument('-r', '--reuse-config',
+                        help='reuse previously stored network configuration',
+                        dest="reuse_config", action="store_true",
+                        default=False)
 
-    parser.add_option('-a', '--auth',
-                      help='keystone credentials in format '
-                           'username=admin,tenant_name=admin,password=admin',
-                      dest="creds", default=None)
+    parser.add_argument('-a', '--auth',
+                        help='keystone credentials in format '
+                             'tenant_name:username:password',
+                        dest="creds", default=None)
 
-    parser.add_option('-D', '--delete',
-                      help='delete list of environments separated by coma e.g'
-                           'environment1,environment2. Use ALL to delete all',
-                      dest='delete', default=None)
+    parser.add_argument('--delete',
+                        help='delete list of environments '
+                             'separated by coma e.g'
+                             'environment1,environment2.'
+                             ' Use ALL to delete all',
+                        dest='delete', default=None)
 
-    parser.add_option('-e', '--email',
-                      help='email to send results. If not provided the results'
-                           'will not be sent',
-                      dest='email', default=None)
+    parser.add_argument('-e', '--email',
+                        help='email to send results. '
+                             'If not provided the results'
+                             'will not be sent',
+                        dest='email', default=None)
 
-    parser.add_option('-q', '--quiet',
-                      help="don't print results to console",
-                      dest='quiet', default=False, action='store_true')
+    parser.add_argument('-q', '--quiet',
+                        help="don't print results to console",
+                        dest='quiet', default=False, action='store_true')
 
-    options, _ = parser.parse_args()
-
-    return options.__dict__
+    return parser.parse_args()
 
 
 def merge_config(config, command_line):
-    if command_line.get('password') is not None:
-        config['report']['mail']['password'] = command_line.get('password')
-    config['fuelurl'] = command_line['fuelurl']
+    config['fuelurl'] = command_line.fuelurl
 
 
-def setup_logger(config):
-    with open(config['log_settings']) as f:
-        cfg = yaml.load(f)
+def setup_logger(log_config_file):
+    with open(log_config_file) as fd:
+        cfg = yaml.load(fd)
 
     logging.config.dictConfig(cfg)
 
@@ -146,35 +144,43 @@ def run_tests(conn, config, clusters, saved_cfg, test_run_timeout, logger):
 def main():
     # prepare and config
     args = parse_command_line()
-    config = parse_config(args['config'])
+
+    config_dir = os.path.dirname(args.config)
+
+    def to_abs_path(rel_path):
+        return os.path.join(config_dir, rel_path)
+
+    config = parse_config(args.config)
     merge_config(config, args)
-    cfg_fname = config["gui_config_file"]
-    setup_logger(config)
+
+    gui_cfg_fname = to_abs_path(config["gui_config_file"])
+
+    logger_config_file = to_abs_path(config["log_settings"])
+    setup_logger(logger_config_file)
+
     logger = logging.getLogger('clogger')
-    creds = args.get('creds')
-    if creds:
+    if args.creds:
         admin_node_ip = config['fuelurl'].split('/')[-1].split(':')[0]
-        keyst_creds = dict([pair.split("=") for pair in creds.split(",")
-                            if pair and "=" in pair])
-        required_keys = ['username', 'password', 'tenant_name']
-        if keyst_creds and all([key in keyst_creds for key in required_keys]):
-            conn = fuel_rest_api.KeystoneAuth(config['fuelurl'],
-                                              creds=keyst_creds,
-                                              echo=True,
-                                              admin_node_ip=admin_node_ip)
-        else:
-            raise Exception("Invalid auth credentials")
+        username, password, tenant_name = args.creds.split(":")
+        keyst_creds = {'username': username,
+                       'password': password,
+                       'tenant_name': tenant_name}
+        conn = fuel_rest_api.KeystoneAuth(config['fuelurl'],
+                                          creds=keyst_creds,
+                                          echo=True,
+                                          admin_node_ip=admin_node_ip)
     else:
         conn = fuel_rest_api.Urllib2HTTP(config['fuelurl'], echo=True)
 
     test_run_timeout = config.get('testrun_timeout', 3600)
 
-    path = os.path.join(os.path.dirname(DEFAULT_CONFIG_PATH),
-                        config['tests']['clusters_directory'])
+    clusters_file_rel_path = config['tests']['clusters_directory']
+    clusters_file_path = to_abs_path(clusters_file_rel_path)
+    clusters = cs.load_all_clusters(clusters_file_path)
 
-    clusters = cs.load_all_clusters(path)
+    print clusters_file_path, clusters.keys()
 
-    clusters_to_delete = args.get('delete')
+    clusters_to_delete = args.delete
     if clusters_to_delete:
         if clusters_to_delete == "ALL":
             cs.delete_all_clusters(conn)
@@ -184,14 +190,14 @@ def main():
         return
 
     saved_cfg = None
-    if args.get('reuse_config') is True:
-        saved_cfg = cs.load_config(cfg_fname)
+    if args.reuse_config is True:
+        saved_cfg = cs.load_config(gui_cfg_fname)
 
-    if args.get('deploy_only') is not None:
+    if args.deploy_only is not None:
         return deploy_single_cluster(args, clusters, conn, logger,
                                      additional_cfg=saved_cfg)
 
-    save_cluster_name = args.get('save_config')
+    save_cluster_name = args.save_config
     if save_cluster_name is not None:
         clusters = list(fuel_rest_api.get_all_clusters(conn))
         if save_cluster_name == "AUTO":
@@ -203,7 +209,7 @@ def main():
         for cluster in clusters:
             if cluster.name == save_cluster_name:
                 cfg = cs.load_config_from_fuel(conn, cluster.id)
-                cs.store_config(cfg, cfg_fname)
+                cs.store_config(cfg, gui_cfg_fname)
         return 0
 
     results = run_tests(conn,

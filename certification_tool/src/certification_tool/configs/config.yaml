@@ -1,15 +1,15 @@
 tests:
-    clusters_directory: clusters
+    clusters_directory: ../clusters
     tests:
         test_simple:
             cluster: simple
             suits:
               - sanity
               - smoke
-        integration_tests:
-            cluster: empty
-            suits:
-              - integration
+        # integration_tests:
+        #     cluster: empty
+        #     suits:
+        #       - integration
 
 
 deploy_timeout: 3600
