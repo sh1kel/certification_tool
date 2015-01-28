@@ -183,6 +183,10 @@ def deploy_cluster(conn, cluster_desc, additional_cfg=None):
         # can be merged with cluster.set_networks above
         update_cluster(cluster, additional_cfg)
 
+    url = "%s/#cluster/%s/nodes" % (conn.root_url, cluster.id)
+    raw_input("Please go to %s and configure nodes interfaces."
+              "Press ENTER to continue" % url)
+
     cluster.deploy(deploy_timeout)
     return cluster
 
