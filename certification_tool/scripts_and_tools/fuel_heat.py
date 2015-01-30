@@ -11,7 +11,8 @@ from certification_tool import fuel_rest_api
 from certification_tool.main import login
 
 fuel_rest_api.set_logger(logging.getLogger())
-logging.getLogger().setLevel(logging.DEBUG)
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 
 def parse_command_line(argv):
@@ -45,6 +46,8 @@ def match_nodes(conn, cluster):
                  if node.cluster is None]
 
         if len(nodes) < min_nodes:
+            templ = "Waiting till {} nodes will be available"
+            logger.info(templ.format(min_nodes))
             time.sleep(10)
             continue
 

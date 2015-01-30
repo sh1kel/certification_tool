@@ -1,7 +1,6 @@
 deploy_timeout: 3600
-name: "sert-cluster"
+name: sert-cluster
 gui_config_file: /tmp/cfg.yaml
-
 log_settings: logging.yaml
 config_file: /tmp/netconfig.yaml
 
@@ -13,9 +12,9 @@ report:
     login: "lht-sert-results@mirantis.com"
 
 cluster_desc:
-    name: "certification_cluster"
-    deployment_mode: "multinode"
-    settings: 
-        net_provider: "nova_network"
+    name: certification_cluster
+    deployment_mode: multinode
+    net_provider: nova_network
     release: "1"
-
+    libvirt_type: kvm
+    storage_type: lvm

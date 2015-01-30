@@ -37,6 +37,9 @@ class Urllib2HTTP(object):
         self.headers = headers if headers is not None else {}
         self.echo = echo
 
+    def host(self):
+        return self.root_url.split('/')[2]
+
     def do(self, method, path, params=None):
         if path.startswith('/'):
             url = self.root_url + path
@@ -312,6 +315,12 @@ class Cluster(RestObj):
     get_networks = GET(
         'api/clusters/{id}/network_configuration/{net_provider}')
 
+    get_attributes = GET(
+        'api/clusters/{id}/attributes')
+
+    set_attributes = PUT(
+        'api/clusters/{id}/attributes')
+
     configure_networks = PUT(
         'api/clusters/{id}/network_configuration/{net_provider}')
 
@@ -429,9 +438,6 @@ def get_all_clusters(conn):
         yield Cluster(conn, **cluster_desc)
 
 
-get_cluster_attributes = GET('api/clusters/{id}/attributes')
-
-
 def get_cluster_id(name, conn):
     """Get cluster id by name"""
     for cluster in get_all_clusters(conn):
@@ -440,9 +446,6 @@ def get_cluster_id(name, conn):
                 logger.debug('cluster name is %s' % name)
                 logger.debug('cluster id is %s' % cluster.id)
             return cluster.id
-
-
-update_cluster_attributes = PUT('api/clusters/{id}/attributes')
 
 
 sections = {
@@ -476,22 +479,48 @@ def create_empty_cluster(conn, cluster_desc, debug_mode=False):
     data['name'] = cluster_desc['name']
     data['release'] = cluster_desc['release']
     data['mode'] = cluster_desc.get('deployment_mode')
-    data['net_provider'] = cluster_desc['settings'].get('net_provider')
-    data['net_segment_type'] = cluster_desc['settings'].get('net_segment_type')
+    data['net_provider'] = cluster_desc.get('net_provider')
 
     params = conn.post(path='/api/clusters', params=data)
     cluster = Cluster(conn, **params)
 
-    settings = cluster_desc['settings']
-    attributes = get_cluster_attributes(cluster)
+    attributes = cluster.get_attributes()
 
     ed_attrs = attributes['editable']
-    for option, value in settings.items():
-        if option in sections:
-            attr_val_dict = ed_attrs[sections[option]][option]
-            attr_val_dict['value'] = value
 
-    ed_attrs['common']['debug']['value'] = debug_mode
-    update_cluster_attributes(cluster, attributes)
+    ed_attrs['common']['libvirt_type']['value'] = \
+        cluster_desc.get('libvirt_type', 'kvm')
+
+    if 'nodes' in cluster_desc:
+        use_ceph = cluster_desc['nodes'].get('ceph_osd', None) is not None
+    else:
+        use_ceph = False
+
+    if 'storage_type' in cluster_desc:
+        st = cluster_desc['storage_type']
+        if st == 'ceph':
+            use_ceph = True
+        else:
+            use_ceph = False
+
+    if use_ceph:
+        opts = ['ephemeral_ceph', 'images_ceph', 'images_vcenter']
+        opts += ['iser', 'objects_ceph', 'volumes_ceph']
+        opts += ['volumes_lvm', 'volumes_vmdk']
+
+        for name in opts:
+            val = ed_attrs['storage'][name]
+            if val['type'] == 'checkbox':
+                is_ceph = ('images_ceph' == name)
+                is_ceph = is_ceph or ('volumes_ceph' == name)
+
+                if is_ceph:
+                    val['value'] = True
+                else:
+                    val['value'] = False
+    # else:
+    #     raise NotImplementedError("Non-ceph storages are not implemented")
+
+    cluster.set_attributes(attributes)
 
     return cluster

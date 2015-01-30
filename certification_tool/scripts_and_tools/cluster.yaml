@@ -1,12 +1,7 @@
 name: test_cluster
-
-deployment_mode: "multinode"
-
-settings: 
-    net_provider: "nova_network"
-    libvirt_type: "kvm"
-    storage: volumes_ceph #volumes_lvm
-
+deployment_mode: multinode
+net_provider: nova_network
+libvirt_type: kvm
 release: "1"
 
 network:
@@ -19,4 +14,4 @@ network:
 nodes:
     controller: 1
     compute: 3
-    ceph_osd: 3
+    ceph_osd: 2
