@@ -2,16 +2,20 @@
 set -e
 set -x
 
-SRC=$1
-PATH_TO_SRC=$2
-SCRIPT='run_tool.sh'
-TMP_ARCHIVE_NAME='tmp.tar.gz'
+CERT_PATH=$1
 
-cd $PATH_TO_SRC
+SCRIPT_TEMPL='run_tool.sh'
+RESULT=`tempfile`
+TMP_ARCHIVE_PATH=`tempfile`
 
-tar -pczf $TMP_ARCHIVE_NAME $SRC
-
+cd `dirname $CERT_PATH`
+tar -pczf "$TMP_ARCHIVE_PATH" `basename $CERT_PATH`
 cd -
-cat "$2/$TMP_ARCHIVE_NAME" >> $SCRIPT
 
-rm "$2/$TMP_ARCHIVE_NAME"
+cp "$SCRIPT_TEMPL" "$RESULT"
+cat "$TMP_ARCHIVE_PATH" >> "$RESULT"
+
+# rm "$TMP_ARCHIVE_PATH"
+
+echo "$TMP_ARCHIVE_PATH"
+echo "store result in $RESULT"

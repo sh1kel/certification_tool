@@ -41,10 +41,11 @@ def match_nodes(conn, cluster):
     min_nodes = ceph_osd + cinder + compute_nodes + controller_count
 
     while True:
-        nodes = list(fuel_rest_api.get_all_nodes(conn))
+        nodes = [node for node in fuel_rest_api.get_all_nodes(conn)
+                 if node.cluster is None]
 
         if len(nodes) < min_nodes:
-            time.sleep(5)
+            time.sleep(10)
             continue
 
         if len(nodes) <= 1:

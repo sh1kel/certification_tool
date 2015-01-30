@@ -46,9 +46,14 @@ def match_nodes(conn, min_nodes):
     results = []
 
     while True:
-        nodes = list(fuel_rest_api.get_all_nodes(conn))
+        nodes = [node for node in fuel_rest_api.get_all_nodes(conn)
+                 if node.cluster is None]
 
         if len(nodes) < min_nodes:
+            if logger is not None:
+                templ = "Only {} nodes available. {} requires. Wait 60 sec"
+                logger.info(templ.format(len(nodes), min_nodes))
+
             time.sleep(60)
             continue
 
@@ -113,21 +118,39 @@ def send_results(mail_config, tests):
 
 def deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes):
 
-    cluster = fuel_rest_api.create_empty_cluster(conn, cluster_desc)
+    if logger is not None:
+        msg_templ = "Waiting till at least {} nodes became available"
+        logger.info(msg_templ.format(min_nodes))
 
-    for node_desc, node in match_nodes(conn, min_nodes):
+    for count, (node_desc, node) in enumerate(match_nodes(conn, min_nodes)):
+        if 0 == count:
+            if logger is not None:
+                logger.info("All required nodes are detected")
+                logger.info("Creating empty cluster")
+            cluster = fuel_rest_api.create_empty_cluster(conn, cluster_desc)
+
         cluster.add_node(node, node_desc['roles'])
+
+    if logger is not None:
+        logger.info("successfully add {} nodes to cluster".format(count))
 
     url = "%s/#cluster/%s/nodes" % (conn.root_url, cluster.id)
 
-    print "\n\n" + "#" * 60
-    print "Please go to %s and configure nodes interfaces." % url + \
-          "Then input 'ready' to continue :",
+    print "\n" + "#" * 60 + "\n"
+    print "Please go to %s and configure network parameters." % url
+    print "Then input 'ready' to continue :",
 
     resp = raw_input()
     while resp != "ready":
         print "Please, type 'ready' :",
         resp = raw_input()
+
+    print
+
+    if logger is not None:
+        logger.info("Start deploing. This may takes a hours. " +
+                    "You may follow deployment process in FUEL UI " +
+                    "in you browser")
 
     cluster.deploy(deploy_timeout)
     return cluster
@@ -144,21 +167,29 @@ def delete_if_exists(conn, name):
 @contextlib.contextmanager
 def make_cluster(conn, cluster_desc, deploy_timeout, min_nodes):
     for cluster_obj in fuel_rest_api.get_all_clusters(conn):
+        if logger is not None:
+            logger.info("Deleting old cluster.... this may takes a while")
+
         if cluster_obj.name == cluster_desc['name']:
             cluster_obj.delete()
             wd = fuel_rest_api.with_timeout(60, "Wait cluster deleted")
             wd(lambda co: not co.check_exists())(cluster_obj)
 
-    c = deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes)
+    if logger is not None:
+        logger.info("Start deploying cluster")
 
+    c = deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes)
     nodes = list(c.get_nodes())
     c.nodes = fuel_rest_api.NodeList(nodes)
+
+    # c = fuel_rest_api.reflect_cluster(conn, 19)
 
     try:
         yield c
     finally:
-        # c.delete()
-        pass
+        if logger is not None:
+            logger.info("Start dropping cluster")
+        c.delete()
 
 
 def update_cluster(cluster, cfg):
@@ -205,7 +236,13 @@ def parse_command_line(argv):
 
     parser.add_argument('--min-nodes',
                         help='minimal required nodes amount',
-                        default=None, type=int, dest="min_nodes")
+                        default=2, type=int, dest="min_nodes")
+
+    ll = "CRITICAL ERROR WARNING INFO DEBUG NOTSET".split()
+    parser.add_argument('--log-level',
+                        help='loging level',
+                        choices=ll, dest="log_level",
+                        default=None)
 
     # sending mail is disabled for now
     # parser.add_argument('-p', '--password',
@@ -229,9 +266,16 @@ def merge_config(config, command_line):
     config['fuelurl'] = command_line.fuelurl
 
 
-def setup_logger(log_config_file):
+def setup_logger(log_config_file, log_level):
     with open(log_config_file) as fd:
         cfg = yaml.load(fd)
+
+    if log_level is not None:
+        if "root" in cfg:
+            cfg['root']['level'] = log_level
+
+        for logger_cfg in cfg['loggers'].values():
+            logger_cfg['level'] = log_level
 
     logging.config.dictConfig(cfg)
     global logger
@@ -248,7 +292,8 @@ def run_tests(conn, config, test_run_timeout,
                             deploy_timeout, min_nodes)
 
     with cont_man as cluster:
-        # cluster = fuel_rest_api.reflect_cluster(conn, 8)
+        if logger is not None:
+            logger.info("Cluster ready! Start tests")
 
         results = run_all_ostf_tests(conn,
                                      cluster.id,
@@ -261,12 +306,30 @@ def run_tests(conn, config, test_run_timeout,
                         if test['status'] == 'failure']
 
         if logger is not None:
+            if len(failed_tests) != 0:
+                templ = "Tests finished. {} test are done," + \
+                        " {} test are failed : {}"
+
+                names = [tests_results['name']
+                         for tests_results in failed_tests]
+
+                msg = templ.format(len(tests_results),
+                                   len(failed_tests),
+                                   ", ".join(names))
+                logger.info(msg)
+
+        if logger is not None:
             for test in failed_tests:
                 logger.error(test['name'])
                 logger.error(" " * 10 + 'Failure message: '
                              + test['message'])
 
-    return tests_results
+        nodes_info = []
+        for node in conn.get('/api/nodes'):
+            if node['cluster'] == cluster.id:
+                nodes_info.append(node)
+
+    return tests_results, nodes_info
 
 
 def login(fuel_url, creds):
@@ -284,6 +347,154 @@ def login(fuel_url, creds):
                                       admin_node_ip=admin_node_ip)
 
 
+header = """
+           MOS hardware sertification run results
+-----------------------------------------------------------
+Date: {date}
+Test version: {version}
+-----------------------------------------------------------
+"""
+
+
+node_descr_templ = """
+#----------------------------------------------------------
+roles: {roles}
+OS: {os}
+Kernel params: {kernel_params}
+
+Manufacturer: {manufacturer}
+
+Cpu count: {cpus_count}
+{cpus_info}
+
+RAM: {memory}
+
+Disks: {disks_count}
+{disks_info}
+
+Interfaces: {interfaces_count}
+{interfaces_info}
+
+"""
+
+
+REPORT_WITH = 60
+
+
+def make_report(results, nodes_info):
+    report = header.format(date=time.time(),
+                           version=certification_tool.__version__)
+
+    failed = [res for res in results if res['status'] != 'success']
+    success = [res for res in results if res['status'] == 'success']
+
+    report += "\n"
+
+    if len(failed) == 0:
+        report += "All {} tests passwed succesfully!\n".format(len(results))
+    elif 1 == len(failed):
+        report += "1 test from {} tests is failed!\n".format(len(failed),
+                                                             len(results))
+    else:
+        report += "{} tests from {} tests are failed!\n".format(len(failed),
+                                                                len(results))
+
+    report += "\n"
+
+    for test in failed:
+        report += "{} {}\n".format(test['name'], test['status'].capitalize())
+
+    if len(success) == 1:
+        report += "1 test passed successfully\n"
+    else:
+        report += "{} tests passed successfully\n".format(len(success))
+
+    for test in failed:
+        report += "{} {}\n".format(test['name'], test['status'].capitalize())
+
+    report += "\n"
+
+    for test in failed:
+        report += "{} {}\n".format(test['name'], test['status'].capitalize())
+
+    report += "Hardware configuration".center(REPORT_WITH) + "\n\n"
+
+    nodes_descrs = []
+
+    for node in nodes_info:
+        node_info = {}
+        # node_info['name'] = ""
+        node_info['roles'] = " ".join(node['roles'])
+        node_info['os'] = node['os_platform']
+        node_info['manufacturer'] = node['manufacturer']
+        node_info['kernel_params'] = node['kernel_params']
+
+        meta = node['meta']
+
+        # -----------------------------------------------------------------------------------
+        node_info['cpus_count'] = meta['cpu']['real']
+
+        cpus_info_lines = []
+        for cpu in meta['cpu']['spec']:
+            cpus_info_lines.append(cpu['model'])
+
+        node_info['cpus_info'] = "\n".join("    " + i for i in cpus_info_lines)
+
+        # -----------------------------------------------------------------------------------
+        node_info['disks_count'] = len(meta['disks'])
+
+        disks_info_lines = []
+        for disk in meta['disks']:
+            sz_gib = int(disk['size']) / (1024 ** 3)
+            ln = "{} {} {} GiB".format(disk['name'], disk['model'], sz_gib)
+            disks_info_lines.append(ln)
+
+        node_info['disks_info'] = "\n".join("    " + i
+                                            for i in disks_info_lines)
+
+        # -----------------------------------------------------------------------------------
+        node_info['interfaces_count'] = len(meta['interfaces'])
+
+        net_info_lines = []
+        for interface in meta['interfaces']:
+            if interface['current_speed'] is not None:
+                speed = int(interface['current_speed']) / (1024 ** 2)
+            else:
+                speed = "Unknown"
+
+            ln = "{} {} {} MiB/s".format(interface['name'],
+                                         interface['state'],
+                                         speed)
+            net_info_lines.append(ln)
+
+        node_info['interfaces_info'] = "\n".join("    " + i
+                                                 for i in net_info_lines)
+
+        # -----------------------------------------------------------------------------------
+
+        memory_count = 0
+        for mem_dev in meta['memory']['devices']:
+            memory_count += int(mem_dev['size']) / 1024 ** 2
+
+        node_info['memory'] = str(memory_count) + " MiB"
+        # -----------------------------------------------------------------------------------
+
+        nodes_descrs.append(node_descr_templ.format(**node_info))
+
+    for node_descr in set(nodes_descrs):
+        amount = nodes_descrs.count(node_descr)
+
+        if amount > 1:
+            cline = "{} nodes with config :".format(amount)
+        else:
+            cline = "One node with config :"
+
+        report += cline.center(REPORT_WITH)
+        report += node_descr + "\n"
+
+    return report
+
+
 def main(argv):
     # prepare and config
     args = parse_command_line(argv)
@@ -294,13 +505,16 @@ def main(argv):
     merge_config(config, args)
 
     logger_config_file = os.path.join(config_dir, (config["log_settings"]))
-    setup_logger(logger_config_file)
+    setup_logger(logger_config_file, args.log_level)
 
     logger = logging.getLogger('clogger')
 
     fuel_url = config['fuelurl'].strip()
     if fuel_url.endswith("/"):
         fuel_url = fuel_url[:-1]
+
+    if logger is not None:
+        logger.info("Connecting to FUEL")
 
     if args.creds:
         conn = login(fuel_url, args.creds)
@@ -309,23 +523,30 @@ def main(argv):
 
     test_run_timeout = config.get('testrun_timeout', 3600)
 
-    results = run_tests(conn,
-                        config,
-                        test_run_timeout,
-                        args.deploy_timeout * 60,
-                        args.min_nodes,
-                        logger)
+    results, nodes_info = run_tests(conn,
+                                    config,
+                                    test_run_timeout,
+                                    args.deploy_timeout * 60,
+                                    args.min_nodes,
+                                    logger)
 
     results = list(results)
     # email_for_results = args.get("email")
     # if email_for_results:
     #    cs.send_results(email_for_results, results)
 
-    nodes_info = conn.get('/api/nodes')
+    # import IPython
+    # IPython.embed()
 
+    report = make_report(results, nodes_info)
     if not args.quiet:
-        print results
-        print nodes_info
+        print report
+
+    fname = "HW_cert_report_{}.txt".format(time.time())
+    with open(fname, "w") as fd:
+        fd.write(report)
+
+    logger.info("Report stored into " + fname)
 
     return 0
 

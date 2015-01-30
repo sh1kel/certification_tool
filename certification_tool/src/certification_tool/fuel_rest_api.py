@@ -2,6 +2,7 @@ import re
 import json
 import time
 import urllib2
+
 from functools import partial, wraps
 
 import netaddr
@@ -49,7 +50,7 @@ class Urllib2HTTP(object):
             data_json = json.dumps(params)
 
         if self.echo and logger is not None:
-            logger.info("HTTP: {} {}".format(method.upper(), url))
+            logger.debug("HTTP: {} {}".format(method.upper(), url))
 
         request = urllib2.Request(url,
                                   data=data_json,
@@ -61,7 +62,7 @@ class Urllib2HTTP(object):
         response = urllib2.urlopen(request)
 
         if self.echo and logger is not None:
-            logger.info("HTTP Responce: {}".format(response.code))
+            logger.debug("HTTP Responce: {}".format(response.code))
 
         if response.code < 200 or response.code > 209:
             raise IndexError(url)
@@ -436,8 +437,8 @@ def get_cluster_id(name, conn):
     for cluster in get_all_clusters(conn):
         if cluster.name == name:
             if logger is not None:
-                logger.info('cluster name is %s' % name)
-                logger.info('cluster id is %s' % cluster.id)
+                logger.debug('cluster name is %s' % name)
+                logger.debug('cluster id is %s' % cluster.id)
             return cluster.id
 
 
@@ -468,9 +469,6 @@ sections = {
 
 def create_empty_cluster(conn, cluster_desc, debug_mode=False):
     """Create new cluster with configuration provided"""
-
-    if logger is not None:
-        logger.info("Creating new cluster %s" % cluster_desc['name'])
 
     data = {}
     data['nodes'] = []
