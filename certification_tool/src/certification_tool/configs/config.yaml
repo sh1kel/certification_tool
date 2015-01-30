@@ -1,19 +1,4 @@
-tests:
-    clusters_directory: ../clusters
-    tests:
-        test_simple:
-            cluster: simple
-            suits:
-              - sanity
-              - smoke
-        # integration_tests:
-        #     cluster: empty
-        #     suits:
-        #       - integration
-
-
 deploy_timeout: 3600
-discovery_timeout: 600
 name: "sert-cluster"
 gui_config_file: /tmp/cfg.yaml
 
@@ -26,3 +11,11 @@ report:
     mail_to: "lht-sert-results@mirantis.com"
     mail_from: "lht-sert-results@mirantis.com"
     login: "lht-sert-results@mirantis.com"
+
+cluster_desc:
+    name: "certification_cluster"
+    deployment_mode: "multinode"
+    settings: 
+        net_provider: "nova_network"
+    release: "1"
+

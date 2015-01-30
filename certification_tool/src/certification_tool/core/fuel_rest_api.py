@@ -325,7 +325,7 @@ class Cluster(RestObj):
     start_deploy = PUT('api/clusters/{id}/changes')
     get_status = GET('api/clusters/{id}')
     delete = DELETE('api/clusters/{id}')
-    get_tasks_status = GET("api/tasks?tasks={id}")
+    get_tasks_status = GET("api/tasks?cluster_id={id}")
     get_networks = GET(
         'api/clusters/{id}/network_configuration/{net_provider}')
 
