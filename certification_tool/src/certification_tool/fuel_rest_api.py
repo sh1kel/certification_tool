@@ -2,7 +2,6 @@ import re
 import json
 import time
 import urllib2
-import pprint
 from functools import partial, wraps
 
 import netaddr
@@ -49,7 +48,7 @@ class Urllib2HTTP(object):
         else:
             data_json = json.dumps(params)
 
-        if self.echo:
+        if self.echo and logger is not None:
             logger.info("HTTP: {} {}".format(method.upper(), url))
 
         request = urllib2.Request(url,
@@ -61,8 +60,8 @@ class Urllib2HTTP(object):
         request.get_method = lambda: method.upper()
         response = urllib2.urlopen(request)
 
-        if self.echo:
-            logger.info("HTTP REsponce: {}".format(response.code))
+        if self.echo and logger is not None:
+            logger.info("HTTP Responce: {}".format(response.code))
 
         if response.code < 200 or response.code > 209:
             raise IndexError(url)
@@ -95,9 +94,10 @@ class KeystoneAuth(Urllib2HTTP):
             self.keystone.authenticate()
             self.headers['X-Auth-Token'] = self.keystone.auth_token
         except exceptions.AuthorizationFailure:
-            logger.warning(
-                'Cant establish connection to keystone with url %s',
-                self.keystone_url)
+            if logger is not None:
+                logger.warning(
+                    'Cant establish connection to keystone with url %s',
+                    self.keystone_url)
 
     def do(self, method, path, params=None):
         """Do request. If gets 401 refresh token"""
@@ -105,7 +105,9 @@ class KeystoneAuth(Urllib2HTTP):
             return super(KeystoneAuth, self).do(method, path, params)
         except urllib2.HTTPError as e:
             if e.code == 401:
-                logger.warning('Authorization failure: {0}'.format(e.read()))
+                if logger is not None:
+                    logger.warning(
+                        'Authorization failure: {0}'.format(e.read()))
                 self.refresh_token()
                 return super(KeystoneAuth, self).do(method, path, params)
             else:
@@ -154,9 +156,6 @@ def make_call(method, url):
             if data != {}:
                 raise ValueError("Both entire_obj and data provided")
             data = entire_obj
-
-        print result_url, data
-
         return obj.__connection__.do(method, result_url, params=data)
     return closure
 
@@ -258,7 +257,7 @@ class Node(RestObj):
 
     def set_node_name(self, name):
         """Update node name"""
-        self.__connection__.put('nodes', [{'id': self.id, 'name': name}])
+        self.__connection__.put('api/nodes', [{'id': self.id, 'name': name}])
 
     def get_network_data(self):
         """Returns node network data"""
@@ -348,7 +347,10 @@ class Cluster(RestObj):
         data['cluster_id'] = self.id
         data['id'] = node.id
         data['pending_addition'] = True
-        logger.debug("Adding node %s to cluster..." % node.id)
+
+        if logger is not None:
+            logger.debug("Adding node %s to cluster..." % node.id)
+
         self.add_node_call([data])
         self.nodes.append(node)
 
@@ -394,16 +396,7 @@ class Cluster(RestObj):
         parameters = configuration['networking_parameters']
 
         if net_descriptions.get('networks'):
-            # net_mapping = {}
-            # for net_description in net_descriptions['networks']:
-            #     print net_description + "!!!!!!!!111one"
-            #     net_mapping[net_descriptions\
-            #            [net_description["name"]]] = net_descriptions
             net_mapping = net_descriptions['networks']
-
-            print "!!!!!!!!!!!!!!!!!!"
-            pprint.pprint(net_mapping)
-            print "-" * 80
 
             for net in current_networks:
                 net_desc = net_mapping.get(net['name'])
@@ -442,8 +435,9 @@ def get_cluster_id(name, conn):
     """Get cluster id by name"""
     for cluster in get_all_clusters(conn):
         if cluster.name == name:
-            logger.info('cluster name is %s' % name)
-            logger.info('cluster id is %s' % cluster.id)
+            if logger is not None:
+                logger.info('cluster name is %s' % name)
+                logger.info('cluster id is %s' % cluster.id)
             return cluster.id
 
 
@@ -474,7 +468,10 @@ sections = {
 
 def create_empty_cluster(conn, cluster_desc, debug_mode=False):
     """Create new cluster with configuration provided"""
-    logger.info("Creating new cluster %s" % cluster_desc['name'])
+
+    if logger is not None:
+        logger.info("Creating new cluster %s" % cluster_desc['name'])
+
     data = {}
     data['nodes'] = []
     data['tasks'] = []
