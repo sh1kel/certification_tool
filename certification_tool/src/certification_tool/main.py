@@ -10,7 +10,7 @@ from email.mime.text import MIMEText
 import yaml
 
 import certification_tool
-fuel_rest_api = certification_tool.fuel_rest_api
+from certification_tool import fuel_rest_api
 
 cert_dir = os.path.dirname(certification_tool.__file__)
 DEFAULT_CONFIG_PATH = os.path.join(cert_dir, "configs", "config.yaml")
@@ -102,7 +102,9 @@ def send_results(mail_config, tests):
     msg['To'] = mail_config['mail_to']
     msg['From'] = mail_config['mail_from']
 
-    logger.debug("Sending results by email...")
+    if logger is not None:
+        logger.debug("Sending results by email...")
+
     server.sendmail(mail_config['mail_from'],
                     [mail_config['mail_to']],
                     msg.as_string())
@@ -232,6 +234,8 @@ def setup_logger(log_config_file):
         cfg = yaml.load(fd)
 
     logging.config.dictConfig(cfg)
+    global logger
+    logger = logging.getLogger('clogger')
 
     fuel_rest_api.set_logger(logging.getLogger('clogger'))
 
@@ -240,29 +244,44 @@ def run_tests(conn, config, test_run_timeout,
               deploy_timeout, min_nodes, logger):
     tests_results = []
 
-    # cont_man = make_cluster(conn, config['cluster_desc'],
-    #                         deploy_timeout, min_nodes)
+    cont_man = make_cluster(conn, config['cluster_desc'],
+                            deploy_timeout, min_nodes)
 
-    # with cont_man as cluster:
+    with cont_man as cluster:
+        # cluster = fuel_rest_api.reflect_cluster(conn, 8)
 
-    cluster = fuel_rest_api.reflect_cluster(conn, 8)
+        results = run_all_ostf_tests(conn,
+                                     cluster.id,
+                                     test_run_timeout)
 
-    results = run_all_ostf_tests(conn,
-                                 cluster.id,
-                                 test_run_timeout)
+        for testset in results:
+            tests_results.extend(testset['tests'])
 
-    for testset in results:
-        tests_results.extend(testset['tests'])
+        failed_tests = [test for test in results
+                        if test['status'] == 'failure']
 
-    failed_tests = [test for test in results
-                    if test['status'] == 'failure']
-
-    for test in failed_tests:
-        logger.error(test['name'])
-        logger.error(" " * 10 + 'Failure message: '
-                     + test['message'])
+        if logger is not None:
+            for test in failed_tests:
+                logger.error(test['name'])
+                logger.error(" " * 10 + 'Failure message: '
+                             + test['message'])
 
     return tests_results
+
+
+def login(fuel_url, creds):
+    if fuel_url.endswith("/"):
+        fuel_url = fuel_url[:-1]
+
+    admin_node_ip = fuel_url.split('/')[-1].split(':')[0]
+    username, password, tenant_name = creds.split(":")
+    keyst_creds = {'username': username,
+                   'password': password,
+                   'tenant_name': tenant_name}
+    return fuel_rest_api.KeystoneAuth(fuel_url,
+                                      creds=keyst_creds,
+                                      echo=True,
+                                      admin_node_ip=admin_node_ip)
 
 
 def main(argv):
@@ -284,15 +303,7 @@ def main(argv):
         fuel_url = fuel_url[:-1]
 
     if args.creds:
-        admin_node_ip = fuel_url.split('/')[-1].split(':')[0]
-        username, password, tenant_name = args.creds.split(":")
-        keyst_creds = {'username': username,
-                       'password': password,
-                       'tenant_name': tenant_name}
-        conn = fuel_rest_api.KeystoneAuth(fuel_url,
-                                          creds=keyst_creds,
-                                          echo=True,
-                                          admin_node_ip=admin_node_ip)
+        conn = login(fuel_url, args.creds)
     else:
         conn = fuel_rest_api.Urllib2HTTP(fuel_url, echo=True)
 
