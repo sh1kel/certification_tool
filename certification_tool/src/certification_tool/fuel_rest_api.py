@@ -10,8 +10,6 @@ import netaddr
 from keystoneclient.v2_0 import Client as keystoneclient
 from keystoneclient import exceptions
 
-from certification_tool.core import type_check
-
 
 logger = None
 
@@ -222,19 +220,6 @@ class FuelInfo(RestObj):
                 in self.get_clusters()]
 
 
-def remap_saved_networks(mapping):
-    # only for saved networks
-    name_remapping = {'admin': 'fuelweb_admin'}
-    new_assigment = {}
-    for net in mapping['assigned_networks']:
-        uname = name_remapping.get(net['name'], net['name'])
-        net_role_desc = {'name': uname, 'id': network_ids[uname]}
-        new_assigment.setdefault(net['dev'], []).append(net_role_desc)
-
-    for interface in curr_net_roles:
-        interface['assigned_networks'] = new_assigment[interface['name']]
-
-
 class Node(RestObj):
     """Represents node in Fuel"""
 
@@ -246,8 +231,6 @@ class Node(RestObj):
         """Assings networks to interfaces
         :param mapping: list (dict) interfaces info
         """
-
-        type_check.check({str: [str]}, mapping)
 
         curr_interfaces = self.get_interfaces()
 

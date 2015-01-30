@@ -9,9 +9,9 @@ from email.mime.text import MIMEText
 
 import yaml
 
-from certification_tool.core import fuel_rest_api
-
 import certification_tool
+fuel_rest_api = certification_tool.fuel_rest_api
+
 cert_dir = os.path.dirname(certification_tool.__file__)
 DEFAULT_CONFIG_PATH = os.path.join(cert_dir, "configs", "config.yaml")
 
