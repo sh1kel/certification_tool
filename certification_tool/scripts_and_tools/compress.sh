@@ -1,11 +1,17 @@
 #!/bin/sh
 set -e
+set -x
 
 SRC=$1
+PATH_TO_SRC=$2
 SCRIPT='run_tool.sh'
 TMP_ARCHIVE_NAME='tmp.tar.gz'
 
-tar -pczf $TMP_ARCHIVE_NAME $SRC
-cat $TMP_ARCHIVE_NAME >> $SCRIPT
+cd $PATH_TO_SRC
 
-rm $TMP_ARCHIVE_NAME
+tar -pczf $TMP_ARCHIVE_NAME $SRC
+
+cd -
+cat "$2/$TMP_ARCHIVE_NAME" >> $SCRIPT
+
+rm "$2/$TMP_ARCHIVE_NAME"
