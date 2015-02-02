@@ -4,7 +4,7 @@ HW Sertification usage
 1. Environment setup
 --------------------
 
-* Setup fuel
+* Setup fuel http://docs.mirantis.com/openstack/fuel/fuel-6.0/user-guide.html#download-and-install-fuel
 * You need a bash console on a computer, which have access to fuel master node
   Try to execute 'wget FUEL_URL'. It should be successful.
 
