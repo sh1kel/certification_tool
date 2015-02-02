@@ -8,7 +8,7 @@ HW Sertification usage
 * You need a bash console on a computer, which have access to fuel master node
   Try to execute 'wget FUEL_URL'. It should be successful.
 
-* You need at python 2.7
+* You need python 2.7
 * Download sertification tool from ....
 
 * Install next packages: python-yaml, python-argparse, python-netaddr, 
