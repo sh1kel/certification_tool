@@ -14,14 +14,19 @@ HW Sertification usage
 * Install next packages: python-yaml, python-argparse, python-netaddr, 
 	python-keystoneclient
   	For ubuntu:
+
   		$ sudo apt-get install python-yaml python-argparse python-netaddr python-keystoneclient
 
   	For centos:
+
   		$ sudo yum install apt-get install python-yaml python-argparse python-netaddr python-keystoneclient
 
 * Run sertification tool and pass FUEL url and auth parameters to it
+* 
 		$ ./cert_tool.sh -a LOGIN:PASSWD:TENANT FUEL_URL
+
 	E.g.
+
 		$ ./cert_tool.sh -a admin:admin:admin http://172.16.50.200:8000/
 
 	Certification tool would use all nodes, available at the moment 
@@ -33,7 +38,7 @@ HW Sertification usage
 * Follow the mesages. When all slave nodes would be ready tool would create 
   test cluster and ask you to setup network parameters:
 
-		Please go to FUEL_CLUSTER_URL and configure network parameters.
+	Please go to FUEL_CLUSTER_URL and configure network parameters.
     	Then input 'ready' to continue :
 
   Open shown FUEL_CLUSTER_URL in our browser, login into FUEL and setup all 
