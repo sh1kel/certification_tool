@@ -38,7 +38,7 @@ HW Sertification usage
 * Follow the mesages. When all slave nodes would be ready tool would create 
   test cluster and ask you to setup network parameters:
 
-	$ Please go to FUEL_CLUSTER_URL and configure network parameters. Then input 'ready' to continue :
+		$ Please go to FUEL_CLUSTER_URL and configure network parameters. Then input 'ready' to continue :
 
   Open shown FUEL_CLUSTER_URL in our browser, login into FUEL and setup all 
   required network, parameters, accordingly to 
