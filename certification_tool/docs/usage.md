@@ -1,5 +1,5 @@
-HW Sertification usage
-----------------------
+HW Verification tool usage
+--------------------------
 
 1. Environment setup
 --------------------
@@ -9,7 +9,7 @@ HW Sertification usage
   Try to execute 'wget FUEL_URL'. It should be successful.
 
 * You need python 2.7
-* Download sertification tool from ....
+* Download verification tool from ....
 
 * Install next packages: python-yaml, python-argparse, python-netaddr, 
 	python-keystoneclient
@@ -21,7 +21,7 @@ HW Sertification usage
 
   		$ sudo yum install apt-get install python-yaml python-argparse python-netaddr python-keystoneclient
 
-* Run sertification tool and pass FUEL url and auth parameters to it
+* Run verification tool and pass FUEL url and auth parameters to it
 * 
 		$ ./cert_tool.sh -a LOGIN:PASSWD:TENANT FUEL_URL
 
@@ -29,7 +29,7 @@ HW Sertification usage
 
 		$ ./cert_tool.sh -a admin:admin:admin http://172.16.50.200:8000/
 
-	Certification tool would use all nodes, available at the moment 
+	Verification tool would use all nodes, available at the moment 
 	(but not less than two). If you would like to create cluster not
 	smaller that XX nodes size - add '--min-nodes XX' parameter. E.g.:
 
