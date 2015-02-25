@@ -1,9 +1,11 @@
 import sys
 import time
+import pprint
 import os.path
 import smtplib
 import datetime
 import contextlib
+import subprocess
 import logging.config
 from argparse import ArgumentParser
 from email.mime.text import MIMEText
@@ -12,41 +14,106 @@ import yaml
 
 import certification_tool
 from certification_tool import fuel_rest_api
+from certification_tool import cert_heat
+
 
 cert_dir = os.path.dirname(certification_tool.__file__)
 DEFAULT_CONFIG_PATH = os.path.join(cert_dir, "configs", "config.yaml")
 
 
-logger = None
+logger = logging.getLogger("certification")
+
+
+def setup_logger(log_config_file, log_level):
+    if log_config_file.endswith(".yaml"):
+        with open(log_config_file) as fd:
+            cfg = yaml.load(fd)
+
+        if log_level is not None:
+            if "root" in cfg:
+                cfg['root']['level'] = log_level
+
+            for logger_cfg in cfg['loggers'].values():
+                logger_cfg['level'] = log_level
+
+        logging.config.dictConfig(cfg)
+    else:
+        logging.config.fileConfig(log_config_file)
+
+        if log_level is not None:
+            logger.setLevel(log_level)
 
 
 cmd_templ = """
-ips=$(fuel node --env {} | tail -n+3 | awk '{{print $10}}')
+ips=$(fuel node --env {0} | tail -n+3 | awk '{{print $10}}')
 for ip in $ips ;do
-    echo "{}"
+    echo "{1}{1}"
     echo $ip
-    ssh $ip 'lspci'
+
+    for cmd in "lscpu" "lspci -vv -k -nn -t" "blockdev --report" "lsblk -atmf" ; do
+        echo "{1}"
+        echo $cmd
+        ssh $ip $cmd
+    done
 done
 """
 
 
-def gather_hw_info(fuel_master_ip, fuel_login, fuel_passwd, cluster_id):
+@contextlib.contextmanager
+def log_error(action, types=(Exception,)):
+    if not action.startswith("!"):
+        logger.info("Starts : " + action)
+    else:
+        action = action[1:]
+
+    try:
+        yield
+    except Exception as exc:
+        if isinstance(exc, types) and not isinstance(exc, StopIteration):
+            templ = "Error during {0} stage: {1}"
+            logger.critical(templ.format(action, exc.message))
+        raise
+
+
+def gather_hw_info_paramiko(fuel_master_ip, fuel_login, fuel_passwd,
+                            cluster_id):
     import paramiko
     ssh = paramiko.SSHClient()
     ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-    ssh.connect(fuel_master_ip,
-                timeout=60,
-                username=fuel_login,
-                password=fuel_passwd,
-                look_for_keys=False)
 
-    cmd = cmd_templ.format(cluster_id, "!!!!!!!!!!!!!!!!!!!!!!!!!")
-    stdin, stdout, stderr = ssh.exec_command(cmd, timeout=600)
-    return stdout.read()
+    try:
+        ssh.connect(fuel_master_ip,
+                    timeout=60,
+                    username=fuel_login,
+                    password=fuel_passwd,
+                    look_for_keys=False)
+
+        cmd = cmd_templ.format(cluster_id, "!!!!!!!!!!!!!!!!!!!!!!!!!")
+        stdin, stdout, stderr = ssh.exec_command(cmd, timeout=600)
+        return stdout.read()
+    except Exception as exc:
+        return "HW info gathering failed! Error: {0}".format(exc.message)
+
+
+def gather_hw_info_subprocess(fuel_master_ip, fuel_login, fuel_passwd,
+                              cluster_id):
+    try:
+        ssh_opts = "-o UserKnownHostsFile=/dev/null"
+        ssh_opts += " -o StrictHostKeyChecking=no"
+        ssh_templ = "ssh {opts} {0}@{1} {2}"
+        cmd = cmd_templ.format(cluster_id, "!!!!!!!!!!!!!!!!!!!!!!!!!")
+        ssh_cmd = ssh_templ.format(fuel_login, fuel_master_ip, cmd,
+                                   opts=ssh_opts)
+        p = subprocess.Popen(ssh_cmd, shell=True,
+                             stdout=subprocess.PIPE,
+                             stderr=subprocess.STDOUT)
+        return p.stdout.read()
+    except Exception as exc:
+        return "HW info gathering failed! Error: {0}".format(exc.message)
 
 
 def run_all_ostf_tests(conn, cluster_id, timeout):
-    testsets = conn.get('/ostf/testsets/{}'.format(cluster_id))
+    testsets = conn.get('/ostf/testsets/{0}'.format(cluster_id))
     tests = [testset['id'] for testset in testsets]
 
     for test_name in tests:
@@ -58,14 +125,14 @@ def run_all_ostf_tests(conn, cluster_id, timeout):
         run_id = conn.post('ostf/testruns', [data])[0]['id']
 
         def check_ready(run_id):
-            status = conn.get('/ostf/testruns/{}'.format(run_id))
+            status = conn.get('/ostf/testruns/{0}'.format(run_id))
             return status['status'] == 'finished'
 
         wt = fuel_rest_api.with_timeout(timeout,
                                         "run test " + test_name)
         wt(check_ready)(run_id)
 
-        yield conn.get('/ostf/testruns/{}'.format(run_id))
+        yield conn.get('/ostf/testruns/{0}'.format(run_id))
 
 
 def match_nodes(conn, min_nodes):
@@ -76,10 +143,8 @@ def match_nodes(conn, min_nodes):
                  if node.cluster is None]
 
         if len(nodes) < min_nodes:
-            if logger is not None:
-                templ = "Only {} nodes available. {} requires. Wait 60 sec"
-                logger.info(templ.format(len(nodes), min_nodes))
-
+            templ = "Only {0} nodes available. {1} requires. Wait 60 sec"
+            logger.info(templ.format(len(nodes), min_nodes))
             time.sleep(60)
             continue
 
@@ -133,8 +198,7 @@ def send_results(mail_config, tests):
     msg['To'] = mail_config['mail_to']
     msg['From'] = mail_config['mail_from']
 
-    if logger is not None:
-        logger.debug("Sending results by email...")
+    logger.debug("Sending results by email...")
 
     server.sendmail(mail_config['mail_from'],
                     [mail_config['mail_to']],
@@ -142,41 +206,47 @@ def send_results(mail_config, tests):
     server.quit()
 
 
+def make_user_to_setup_networks(url):
+    print "\n" + "#" * 60 + "\n"
+    print "Please go to %s and configure network parameters." % url
+    print "Then input 'ready' to continue or 'exit' to break:",
+
+    resp = raw_input()
+    while resp != "ready" and resp != "exit":
+        print "Please, type 'ready' or 'exit' :",
+        try:
+            resp = raw_input()
+        except:
+            print
+            raise
+
+    print "\n" + "#" * 60 + "\n"
+
+    return resp == 'ready'
+
+
 def deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes):
 
-    if logger is not None:
-        msg_templ = "Waiting till at least {} nodes became available"
-        logger.info(msg_templ.format(min_nodes))
+    msg_templ = "Waiting till at least {0} nodes became available"
+    logger.info(msg_templ.format(min_nodes))
 
-    for count, (node_desc, node) in enumerate(match_nodes(conn, min_nodes)):
-        if 0 == count:
-            if logger is not None:
-                logger.info("All required nodes are detected")
-                logger.info("Creating empty cluster")
-            cluster = fuel_rest_api.create_empty_cluster(conn, cluster_desc)
-
-        cluster.add_node(node, node_desc['roles'])
-
-    if logger is not None:
-        logger.info("successfully add {} nodes to cluster".format(count))
+    cluster = cert_heat.create_cluster(conn, cluster_desc)
 
     url = "%s/#cluster/%s/nodes" % (conn.root_url, cluster.id)
 
-    print "\n" + "#" * 60 + "\n"
-    print "Please go to %s and configure network parameters." % url
-    print "Then input 'ready' to continue :",
+    try:
+        if not make_user_to_setup_networks(url):
+            raise SystemExit()
+    except:
+        logger.info("Exiting. Removing cluster")
+        cluster.delete()
+        wd = fuel_rest_api.with_timeout(60, "Wait cluster deleted")
+        wd(lambda co: not co.check_exists())(cluster)
+        raise
 
-    resp = raw_input()
-    while resp != "ready":
-        print "Please, type 'ready' :",
-        resp = raw_input()
-
-    print
-
-    if logger is not None:
-        logger.info("Start deploing. This may takes a hours. " +
-                    "You may follow deployment process in FUEL UI " +
-                    "in you browser")
+    logger.info("Start deploing. This may takes a hours. " +
+                "You may follow deployment process in FUEL UI " +
+                "in you browser")
 
     cluster.deploy(deploy_timeout)
     return cluster
@@ -191,39 +261,42 @@ def delete_if_exists(conn, name):
 
 
 @contextlib.contextmanager
-def make_cluster(conn, cluster_desc, deploy_timeout, min_nodes):
-    for cluster_obj in fuel_rest_api.get_all_clusters(conn):
-        if cluster_obj.name == cluster_desc['name']:
-
-            if logger is not None:
+def make_cluster(conn, cluster_desc, deploy_timeout, min_nodes,
+                 reuse_cluster_id=None):
+    if reuse_cluster_id is None:
+        for cluster_obj in fuel_rest_api.get_all_clusters(conn):
+            if cluster_obj.name == cluster_desc['name']:
                 logger.info("Deleting old cluster.... this may takes a while")
+                cluster_obj.delete()
+                wd = fuel_rest_api.with_timeout(60, "Wait cluster deleted")
+                wd(lambda co: not co.check_exists())(cluster_obj)
+                break
 
-            cluster_obj.delete()
-            wd = fuel_rest_api.with_timeout(60, "Wait cluster deleted")
-            wd(lambda co: not co.check_exists())(cluster_obj)
-
-            break
-
-    if logger is not None:
         logger.info("Start deploying cluster")
 
-    c = deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes)
-    nodes = list(c.get_nodes())
-    c.nodes = fuel_rest_api.NodeList(nodes)
+        c = deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes)
 
-    # c = fuel_rest_api.reflect_cluster(conn, 30)
+        with log_error("!Get list of nodes"):
+            nodes = list(c.get_nodes())
+            c.nodes = fuel_rest_api.NodeList(nodes)
+    else:
+        msg = "Will reuse existing cluster with id={0}"
+        logger.info(msg.format(reuse_cluster_id))
+        with log_error("Reflecting cluster {0}".format(reuse_cluster_id)):
+            c = fuel_rest_api.reflect_cluster(conn, reuse_cluster_id)
 
     try:
         yield c
     finally:
-        if logger is not None:
-            logger.info("Start dropping cluster")
-        c.delete()
+        if reuse_cluster_id is None:
+            with log_error("Starts dropping cluster"):
+                c.delete()
 
 
 def update_cluster(cluster, cfg):
 
-    cfg_for_mac = {val['main_mac']: val for name, val in cfg['nodes'].items()}
+    cfg_for_mac = dict((val['main_mac'], val)
+                       for name, val in cfg['nodes'].items())
 
     for node in cluster.get_nodes():
         if node.mac in cfg_for_mac:
@@ -237,35 +310,27 @@ def update_cluster(cluster, cfg):
                 dev_name = net_descr['dev']
                 mapping.setdefault(dev_name, []).append(net_name)
 
-            node.set_network_assigment(mapping)
+            templ = "update network settings for node {0}"
+            with log_error(templ.format(node.name)):
+                node.set_network_assigment(mapping)
 
     net_data = cfg['network_provider_configuration']
-    cluster.set_networks(net_data)
+
+    with log_error("update cluster network settings"):
+        cluster.set_networks(net_data)
 
 
 def parse_config(cfg_path):
-    try:
+    if not os.path.isfile(cfg_path):
+        logger.error("No such file {0!r}".format(cfg_path))
+        exit(1)
+
+    with log_error("reading config file {0!r}".format(cfg_path)):
         with open(cfg_path) as f:
             fc = f.read()
-    except (IOError, OSError) as exc:
-        if not os.path.is_file(cfg_path):
-            print "No such file", cfg_path
-            exit(1)
-        print "Error while reading config file", cfg_path
-        print exc.message
-        exit(1)
 
-    except:
-        print "Error while reading config file", cfg_path
-        print exc.message
-        exit(1)
-
-    try:
+    with log_error("parsing config file"):
         return yaml.load(fc)
-    except Exception as exc:
-        print "Can't parse config file ", cfg_path
-        print exc.message
-        exit(1)
 
 
 def parse_command_line(argv):
@@ -306,47 +371,38 @@ def parse_command_line(argv):
     #                          'will not be sent',
     #                     dest='email', default=None)
 
+    parser.add_argument('--reuse-cluster', type=int,
+                        help="reuse existing cluster for tests",
+                        metavar="CLUSTER_ID", default=None)
+
     parser.add_argument('-q', '--quiet',
                         help="don't print results to console",
                         dest='quiet', default=False, action='store_true')
+
+    parser.add_argument('--save-report-to', default=None,
+                        metavar="RESULT_FILE", help="save report to file")
 
     parser.add_argument('fuelurl', help='fuel rest url', metavar="FUEL_URL")
 
     return parser.parse_args(argv)
 
 
-def setup_logger(log_config_file, log_level):
-    with open(log_config_file) as fd:
-        cfg = yaml.load(fd)
-
-    if log_level is not None:
-        if "root" in cfg:
-            cfg['root']['level'] = log_level
-
-        for logger_cfg in cfg['loggers'].values():
-            logger_cfg['level'] = log_level
-
-    logging.config.dictConfig(cfg)
-    global logger
-    logger = logging.getLogger('clogger')
-
-    fuel_rest_api.set_logger(logging.getLogger('clogger'))
-
-
 def run_tests(conn, config, test_run_timeout,
-              deploy_timeout, min_nodes, fuel_ssh_creds):
+              deploy_timeout, min_nodes, fuel_ssh_creds,
+              reuse_cluster_id=None):
     tests_results = []
 
     cont_man = make_cluster(conn, config['cluster_desc'],
-                            deploy_timeout, min_nodes)
+                            deploy_timeout, min_nodes,
+                            reuse_cluster_id=reuse_cluster_id)
 
     with cont_man as cluster:
-        if logger is not None:
-            logger.info("Cluster ready! Start tests")
+        logger.info("Cluster ready!")
 
-        results = run_all_ostf_tests(conn,
-                                     cluster.id,
-                                     test_run_timeout)
+        with log_error("Start tests"):
+            results = run_all_ostf_tests(conn,
+                                         cluster.id,
+                                         test_run_timeout)
 
         for testset in results:
             tests_results.extend(testset['tests'])
@@ -354,36 +410,38 @@ def run_tests(conn, config, test_run_timeout,
         failed_tests = [test for test in results
                         if test['status'] == 'failure']
 
-        if logger is not None:
-            if len(failed_tests) != 0:
-                templ = "Tests finished. {} test are done," + \
-                        " {} test are failed : {}"
+        if len(failed_tests) != 0:
+            templ = "Tests finished. {0} test are done," + \
+                    " {1} test are failed : {2}"
 
-                names = [tests_results['name']
-                         for tests_results in failed_tests]
+            names = [tests_results['name']
+                     for tests_results in failed_tests]
 
-                msg = templ.format(len(tests_results),
-                                   len(failed_tests),
-                                   ", ".join(names))
-                logger.info(msg)
+            msg = templ.format(len(tests_results),
+                               len(failed_tests),
+                               ", ".join(names))
+            logger.info(msg)
+        else:
+            logger.info("All tests passed successfully!")
 
-        if logger is not None:
-            for test in failed_tests:
-                logger.error(test['name'])
-                logger.error(" " * 10 + 'Failure message: '
-                             + test['message'])
+        for test in failed_tests:
+            logger.error(test['name'])
+            logger.error(" " * 10 + 'Failure message: '
+                         + test['message'])
 
         nodes_info = []
         for node in conn.get('/api/nodes'):
             if node['cluster'] == cluster.id:
                 nodes_info.append(node)
 
+        hw_info = []
         if fuel_ssh_creds is not None:
+            logger.info("Gathering hardware info")
             name, passwd = fuel_ssh_creds.split(":", 1)
-            gather_hw_info(conn.host(), name,
-                           passwd, cluster.id)
+            hw_info.append(gather_hw_info_subprocess(conn.host(), name,
+                                                     passwd, cluster.id))
 
-    return tests_results, nodes_info
+    return tests_results, nodes_info, hw_info
 
 
 def login(fuel_url, creds):
@@ -395,13 +453,10 @@ def login(fuel_url, creds):
     keyst_creds = {'username': username,
                    'password': password,
                    'tenant_name': tenant_name}
-    try:
-        return fuel_rest_api.KeystoneAuth(fuel_url,
-                                          creds=keyst_creds,
-                                          echo=True,
-                                          admin_node_ip=admin_node_ip)
-    except Exception as exc:
-        print "Fail to connect or login into FUEL", exc.message
+    return fuel_rest_api.KeystoneAuth(fuel_url,
+                                      creds=keyst_creds,
+                                      echo=True,
+                                      admin_node_ip=admin_node_ip)
 
 
 header = """
@@ -438,7 +493,7 @@ Interfaces: {interfaces_count}
 REPORT_WITH = 60
 
 
-def make_report(results, nodes_info):
+def make_report(results, nodes_info, hw_info):
     dt = datetime.datetime.now()
 
     report = header.format(date=dt.strftime("%d %b %Y %H:%M"),
@@ -450,26 +505,27 @@ def make_report(results, nodes_info):
     report += "\n"
 
     if len(failed) == 0:
-        report += "All {} tests passwed succesfully!\n".format(len(results))
+        templ = "All {0} tests are passwed succesfully!\n"
+        report += templ.format(len(results))
     elif 1 == len(failed):
-        report += "1 test from {} tests is failed!\n".format(len(failed),
-                                                             len(results))
+        report += "1 test from {0} tests is failed!\n".format(len(failed),
+                                                              len(results))
     else:
-        report += "{} tests from {} tests are failed!\n".format(len(failed),
-                                                                len(results))
+        report += "{0} tests from {1} are failed!\n".format(len(failed),
+                                                            len(results))
 
     report += "\n"
 
     for test in failed:
-        report += "{} {}\n".format(test['name'], test['status'].capitalize())
+        report += "{0} {1}\n".format(test['name'], test['status'].capitalize())
 
     if len(success) == 1:
         report += "1 test passed successfully\n"
     else:
-        report += "{} tests passed successfully\n".format(len(success))
+        report += "{0} tests passed successfully\n".format(len(success))
 
     for test in success:
-        report += "{} {}\n".format(test['name'], test['status'].capitalize())
+        report += "{0} {1}\n".format(test['name'], test['status'].capitalize())
 
     report += "\n"
 
@@ -490,23 +546,28 @@ def make_report(results, nodes_info):
         # -----------------------------------------------------------------------------------
         node_info['cpus_count'] = meta['cpu']['real']
 
-        cpus_info_lines = []
-        for cpu in meta['cpu']['spec']:
-            cpus_info_lines.append(cpu['model'])
+        cpus_info_lines_count = {}
 
-        node_info['cpus_info'] = "\n".join("    " + i for i in cpus_info_lines)
+        for cpu in meta['cpu']['spec']:
+            count = cpus_info_lines_count.get(cpu['model'], 0)
+            cpus_info_lines_count[cpu['model']] = count + 1
+
+        node_info['cpus_info'] = "\n".join(
+            "    {0} x {1}".format(descr, count)
+            for descr, count in cpus_info_lines_count.items())
 
         # -----------------------------------------------------------------------------------
         node_info['disks_count'] = len(meta['disks'])
 
-        disks_info_lines = []
+        disks_info_lines = {}
         for disk in meta['disks']:
             sz_gib = int(disk['size']) / (1024 ** 3)
-            ln = "{} {} {} GiB".format(disk['name'], disk['model'], sz_gib)
-            disks_info_lines.append(ln)
+            ln = "{0} {1} {2} GiB".format(disk['name'], disk['model'], sz_gib)
+            disks_info_lines[ln] = disks_info_lines.get(ln, 0) + 1
 
-        node_info['disks_info'] = "\n".join("    " + i
-                                            for i in disks_info_lines)
+        node_info['disks_info'] = "\n".join(
+                                    "    {0} x {1}".format(descr, count)
+                        for descr, count in disks_info_lines.items())
 
         # -----------------------------------------------------------------------------------
         node_info['interfaces_count'] = len(meta['interfaces'])
@@ -518,9 +579,9 @@ def make_report(results, nodes_info):
             else:
                 speed = "Unknown"
 
-            ln = "{} {} {} MiB/s".format(interface['name'],
-                                         interface['state'],
-                                         speed)
+            ln = "{0} {1} {2} MiB/s".format(interface['name'],
+                                            interface['state'],
+                                            speed)
             net_info_lines.append(ln)
 
         node_info['interfaces_info'] = "\n".join("    " + i
@@ -541,14 +602,16 @@ def make_report(results, nodes_info):
         amount = nodes_descrs.count(node_descr)
 
         if amount > 1:
-            cline = "{} nodes with config :".format(amount)
+            cline = "{0} nodes with config :".format(amount)
         else:
             cline = "One node with config :"
 
         report += cline.center(REPORT_WITH)
         report += node_descr + "\n"
 
-    return report
+    hw_report = "\n\n".join(hw_info)
+
+    return report, hw_report
 
 
 def main(argv):
@@ -563,31 +626,28 @@ def main(argv):
     logger_config_file = os.path.join(config_dir, log_sett_file)
     setup_logger(logger_config_file, args.log_level)
 
-    logger = logging.getLogger('clogger')
-
     fuel_url = args.fuelurl.strip()
     if fuel_url.endswith("/"):
         fuel_url = fuel_url[:-1]
 
-    if logger is not None:
-        logger.info("Connecting to FUEL")
-
     if args.creds:
-        conn = login(fuel_url, args.creds)
+        with log_error("connecting and login into FUEL"):
+            conn = login(fuel_url, args.creds)
     else:
-        try:
+        with log_error("connecting into FUEL"):
             conn = fuel_rest_api.Urllib2HTTP(fuel_url, echo=True)
-        except Exception as exc:
-            print "Fail to connect to FUEL", exc.message
 
     test_run_timeout = cluster_config.get('testrun_timeout', 3600)
 
-    results, nodes_info = run_tests(conn,
-                                    cluster_config,
-                                    test_run_timeout,
-                                    args.deploy_timeout * 60,
-                                    args.min_nodes,
-                                    args.fuel_ssh_creds)
+    res = run_tests(conn,
+                    cluster_config,
+                    test_run_timeout,
+                    args.deploy_timeout * 60,
+                    args.min_nodes,
+                    args.fuel_ssh_creds,
+                    reuse_cluster_id=args.reuse_cluster)
+
+    results, nodes_info, hw_info = res
 
     results = list(results)
     # email_for_results = args.get("email")
@@ -595,13 +655,19 @@ def main(argv):
     #    cs.send_results(email_for_results, results)
 
     # make and store report
-    report = make_report(results, nodes_info)
+    report, hw_report = make_report(results, nodes_info, hw_info)
+
     if not args.quiet:
         print report
 
-    fname = "HW_cert_report_{}.txt".format(time.time())
+    if args.save_report_to is None:
+        fname = "HW_cert_report_{0}.txt".format(time.time())
+    else:
+        fname = args.save_report_to
+
     with open(fname, "w") as fd:
         fd.write(report)
+        fd.write(hw_report)
 
     logger.info("Report stored into " + fname)
 

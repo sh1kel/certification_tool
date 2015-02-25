@@ -1,24 +1,15 @@
 #!/usr/bin/env python2
-import sys
 import time
+import logging
 import itertools
 import collections
-
 from argparse import ArgumentParser
 
-import yaml
-import logging
 
 from certification_tool import fuel_rest_api
-from certification_tool.main import login
 
-fuel_rest_api.set_logger(logging.getLogger())
-logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
 
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-logger.addHandler(ch)
+logger = logging.getLogger("certification")
 
 
 def create_empty_cluster(conn, cluster_desc,
@@ -114,6 +105,9 @@ def match_nodes(conn, cluster, max_nodes=None):
         templ = "max_nodes ({0!r}) < min_nodes ({1!r})"
         raise ValueError(templ.format(max_nodes, min_nodes))
 
+    for node_group in node_groups:
+        logger.info("Node : {0}".format(node_group))
+
     controller_only = sum(node_group.num for node_group in node_groups
                           if ['controller'] == node_group.roles)
 
@@ -186,8 +180,8 @@ def match_nodes(conn, cluster, max_nodes=None):
         cycle_over = enumerate(itertools.cycle(strechable_node_groups),
                                min_nodes)
 
-        nums = {id(node_group): node_group.num
-                for node_group in strechable_node_groups}
+        nums = dict((id(node_group), node_group.num)
+                    for node_group in strechable_node_groups)
 
         for selected_nodes, node_group in cycle_over:
             if cpu_disk == [] or selected_nodes == max_nodes:
@@ -291,30 +285,3 @@ def create_cluster(conn, cluster):
         raise
 
     return cluster_obj
-
-
-def main(argv):
-    args = parse_command_line(argv)
-
-    logger.info("Connecting to fuel")
-    conn = login(args.fuelurl, args.auth)
-
-    logger.info("Loading config from " + args.config_file)
-    cluster = yaml.load(open(args.config_file).read())
-
-    logger.info("Will deploy cluster {0!r}".format(cluster['name']))
-    logger.info("Checking already created clusters")
-
-    for cluster_obj in fuel_rest_api.get_all_clusters(conn):
-        if cluster_obj.name == cluster['name']:
-            logger.info("Found cluster, will delete it")
-            cluster_obj.delete()
-            wd = fuel_rest_api.with_timeout(60, "Wait cluster deleted")
-            wd(lambda co: not co.check_exists())(cluster_obj)
-
-    new_cluster_obj = create_cluster(conn, cluster)
-    templ = 'Cluster ready - navigate to "{0}#cluster/{1}/nodes"'
-    logger.info(templ.format(args.fuelurl, new_cluster_obj.id))
-
-if __name__ == "__main__":
-    exit(main(sys.argv[1:]))

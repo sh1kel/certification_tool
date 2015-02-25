@@ -13,17 +13,11 @@ handlers:
     file:
         class : logging.FileHandler
         formatter: simpleFormater
-        level: WARNING
-        filename: songinfo.log
+        level: DEBUG
+        filename: certification.log
 
 loggers:
-    #clogger:
-    #    level: DEBUG
-    #    handlers: [console]
-    flogger:
-        level: INFO
-        handlers: [file]
+    certification:
+        level: DEBUG
+        handlers: [file, console]
 
-root:
-    level: INFO
-    handlers: [console, file]

@@ -10,12 +10,8 @@ function clean {
 
 function extract {
 	local tempo_folder=$1
-
 	ARCHIVE=`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' $0`
-
 	mkdir "$tempo_folder"
-
-	tail -n+$ARCHIVE $0 > /tmp/bin.tgz
 	tail -n+$ARCHIVE $0 | tar xzv -C $tempo_folder >/dev/null
 }
 
@@ -52,12 +48,7 @@ function usage {
 # }
 
 function main {
-	# local fuel_url="$1"
-	# local credentials="$2"
-
-	echo "Using fuel installation $1 with credentials $2"
-
-	local tempo_folder=$(tempfile -p "fuel-")
+	local tempo_folder=$(mktemp -p /tmp fuel-XXXXXXXX)
 	rm $tempo_folder
 
 	# check_params $@
@@ -65,8 +56,7 @@ function main {
 	clean "$tempo_folder"
 	extract "$tempo_folder"
 
-	# PYTHONPATH="$tempo_folder:$PYTHONPATH" python -m certification_tool -a "$credentials" "$fuel_url"
-	PYTHONPATH="$tempo_folder:$PYTHONPATH" python -m certification_tool $@
+	PYTHONPATH="$tempo_folder:$PYTHONPATH" python $tempo_folder/certification_tool/main.py $@
 
 	clean "$tempo_folder"
 }

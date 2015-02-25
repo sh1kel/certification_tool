@@ -1,17 +1,27 @@
 name: test_cluster
 deployment_mode: multinode
-net_provider: nova_network
+net_provider: neutron_vlan
 libvirt_type: kvm
-release: "1"
+release: "2"
 
 network:
-    floating: 172.16.54.16 - 172.16.54.31
     public:
         ip_ranges: 172.16.54.2 - 172.16.54.15
         cidr: 172.16.54.0/26
         gateway: 172.16.54.1
+    management:
+        vlan: 201
+    storage:
+        vlan: 202
+
+    vlan_range: [204, 208]
+
+    floating: 172.16.54.16 - 172.16.54.31
+    net_l23_provider: ovs
+    net_manager: VlanManager
 
 nodes:
-    controller: 1
-    compute: 3
-    ceph_osd: 2
+    - controller + ceph-osd, 1
+    - compute + ceph-osd, 2+
+
+max_nodes: 6

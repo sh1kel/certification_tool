@@ -1,6 +1,7 @@
 import re
 import json
 import time
+import logging
 import urllib2
 
 from functools import partial, wraps
@@ -11,13 +12,10 @@ from keystoneclient.v2_0 import Client as keystoneclient
 from keystoneclient import exceptions
 
 
-logger = None
+logger = logging.getLogger("certification")
 
 
-def set_logger(log):
-    global logger
-    logger = log
-
+# HTTP Engine ---------------------------------------------------------------
 
 class Urllib2HTTP(object):
     """
@@ -53,7 +51,7 @@ class Urllib2HTTP(object):
             data_json = json.dumps(params)
 
         if self.echo and logger is not None:
-            logger.debug("HTTP: {} {}".format(method.upper(), url))
+            logger.debug("HTTP: {0} {1}".format(method.upper(), url))
 
         request = urllib2.Request(url,
                                   data=data_json,
@@ -65,7 +63,7 @@ class Urllib2HTTP(object):
         response = urllib2.urlopen(request)
 
         if self.echo and logger is not None:
-            logger.debug("HTTP Responce: {}".format(response.code))
+            logger.debug("HTTP Responce: {0}".format(response.code))
 
         if response.code < 200 or response.code > 209:
             raise IndexError(url)
@@ -81,6 +79,9 @@ class Urllib2HTTP(object):
         if name in self.allowed_methods:
             return partial(self.do, name)
         raise AttributeError(name)
+
+
+# HTTP Engine ---------------------------------------------------------------
 
 
 class KeystoneAuth(Urllib2HTTP):
@@ -118,6 +119,9 @@ class KeystoneAuth(Urllib2HTTP):
                 raise
 
 
+# UniREST ---------------------------------------------------------------
+
+
 def get_inline_param_list(url):
     format_param_rr = re.compile(r"\{([a-zA-Z_]+)\}")
     for match in format_param_rr.finditer(url):
@@ -133,12 +137,12 @@ class RestObj(object):
         self.__connection__ = conn
 
     def __str__(self):
-        res = ["{}({}):".format(self.__class__.__name__, self.name)]
+        res = ["{0}({1}):".format(self.__class__.__name__, self.name)]
         for k, v in sorted(self.__dict__.items()):
             if k.startswith('__') or k.endswith('__'):
                 continue
             if k != 'name':
-                res.append("    {}={!r}".format(k, v))
+                res.append("    {0}={1!r}".format(k, v))
         return "\n".join(res)
 
     def __getitem__(self, item):
@@ -167,6 +171,9 @@ def make_call(method, url):
 PUT = partial(make_call, 'put')
 GET = partial(make_call, 'get')
 DELETE = partial(make_call, 'delete')
+
+
+# -------- UTILS -------------------------------------------------------------
 
 
 def with_timeout(tout, message):
@@ -310,7 +317,7 @@ class Cluster(RestObj):
     add_node_call = PUT('api/nodes')
     start_deploy = PUT('api/clusters/{id}/changes')
     get_status = GET('api/clusters/{id}')
-    delete = DELETE('api/clusters/{id}')
+    # delete = DELETE('api/clusters/{id}')
     get_tasks_status = GET("api/tasks?cluster_id={id}")
     get_networks = GET(
         'api/clusters/{id}/network_configuration/{net_provider}')
@@ -448,28 +455,6 @@ def get_cluster_id(name, conn):
             return cluster.id
 
 
-sections = {
-    'sahara': 'additional_components',
-    'murano': 'additional_components',
-    'ceilometer': 'additional_components',
-    'volumes_ceph': 'storage',
-    'images_ceph': 'storage',
-    'ephemeral_ceph': 'storage',
-    'objects_ceph': 'storage',
-    'osd_pool_size': 'storage',
-    'volumes_lvm': 'storage',
-    'volumes_vmdk': 'storage',
-    'tenant': 'access',
-    'password': 'access',
-    'user': 'access',
-    'vc_password': 'vcenter',
-    'cluster': 'vcenter',
-    'host_ip': 'vcenter',
-    'vc_user': 'vcenter',
-    'use_vcenter': 'vcenter',
-}
-
-
 def create_empty_cluster(conn, cluster_desc, debug_mode=False):
     """Create new cluster with configuration provided"""
 
@@ -518,8 +503,6 @@ def create_empty_cluster(conn, cluster_desc, debug_mode=False):
                     val['value'] = True
                 else:
                     val['value'] = False
-    # else:
-    #     raise NotImplementedError("Non-ceph storages are not implemented")
 
     cluster.set_attributes(attributes)
 
