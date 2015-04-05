@@ -460,7 +460,7 @@ def login(fuel_url, creds):
 
 
 header = """
-           MOS hardware sertification run results
+           MOS hardware certification run results
 -----------------------------------------------------------
 Date: {date}
 Test version: {version}

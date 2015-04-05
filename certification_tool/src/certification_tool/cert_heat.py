@@ -156,7 +156,7 @@ def match_nodes(conn, cluster, max_nodes=None):
                      if 'compute' in node_group.roles]
     idx = 0
     for node_group in compute_nodes:
-        for _ in enumerate(range(node_group.num), idx):
+        for idx, _ in enumerate(range(node_group.num), idx):
             name = make_name(node_group, idx)
             descr = {'roles': node_group.roles,
                      'name': name}

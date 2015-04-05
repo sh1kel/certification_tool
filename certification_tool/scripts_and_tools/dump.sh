@@ -14,17 +14,18 @@ function on_fuel() {
 }
 
 function copy_code_and_run() {
-	echo "set timeout 120" > /tmp/sert.exp
-	echo "spawn scp $0 root@10.20.0.2:/tmp" >> /tmp/sert.exp
-	echo 'expect "password:"' >> /tmp/sert.exp
-	echo "send r00tme\n;" >> /tmp/sert.exp
-	echo "interact" >> /tmp/sert.exp
-	echo 'spawn ssh root@10.20.0.2 bash /tmp/dump.sh' >> /tmp/sert.exp
-	echo 'expect "password:"' >> /tmp/sert.exp
-	echo "send r00tme\n;" >> /tmp/sert.exp
-	echo "interact" >> /tmp/sert.exp
-	expect /tmp/sert.exp
-	rm /tmp/sert.exp
+	FNAME=/tmp/cert.exp
+	echo "set timeout 120" > $FNAME
+	echo "spawn scp $0 root@10.20.0.2:/tmp" >> $FNAME
+	echo 'expect "password:"' >> $FNAME
+	echo "send r00tme\n;" >> $FNAME
+	echo "interact" >> $FNAME
+	echo 'spawn ssh root@10.20.0.2 bash /tmp/dump.sh' >> $FNAME
+	echo 'expect "password:"' >> $FNAME
+	echo "send r00tme\n;" >> $FNAME
+	echo "interact" >> $FNAME
+	expect $FNAME
+	rm $FNAME
 }
 
 if [ "$HOSTNAME" == "fuel.domain.tld" ] ; then
