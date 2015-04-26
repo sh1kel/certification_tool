@@ -1,8 +1,10 @@
 import re
 import json
 import time
+import pprint
 import logging
 import urllib2
+import urlparse
 
 from functools import partial, wraps
 
@@ -36,7 +38,7 @@ class Urllib2HTTP(object):
         self.echo = echo
 
     def host(self):
-        return self.root_url.split('/')[2]
+        return urlparse.urlparse(self.root_url).netloc.split(':')[0]
 
     def do(self, method, path, params=None):
         if path.startswith('/'):
@@ -387,7 +389,7 @@ class Cluster(RestObj):
             return self.get_status()['status'] == 'operational'
         with_timeout(timeout, "deploy cluster")(wo)()
 
-    def deploy(self, timeout):
+    def deploy(self, timeout, ignore_task_errors=False):
         """Start deploy and wait until all tasks finished"""
         logger.debug("Starting deploy...")
         self.start_deploy()
@@ -398,7 +400,11 @@ class Cluster(RestObj):
             ok = True
             for task in obj.get_tasks_status():
                 if task['status'] == 'error':
-                    raise Exception('Task execution error')
+                    if ignore_task_errors:
+                        ok = False
+                    else:
+                        raise Exception('Task execution error' +
+                                        pprint.pformat(task.__dict__))
                 elif task['status'] != 'ready':
                     ok = False
             return ok

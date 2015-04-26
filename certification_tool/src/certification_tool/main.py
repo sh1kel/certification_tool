@@ -44,21 +44,6 @@ def setup_logger(log_config_file, log_level):
             logger.setLevel(log_level)
 
 
-cmd_templ = """
-ips=$(fuel node --env {0} | tail -n+3 | awk '{{print $10}}')
-for ip in $ips ;do
-    echo "{1}{1}"
-    echo $ip
-
-    for cmd in "lscpu" "lspci -vv -k -nn -t" "blockdev --report" "lsblk -atmf" ; do
-        echo "{1}"
-        echo $cmd
-        ssh $ip $cmd
-    done
-done
-"""
-
-
 @contextlib.contextmanager
 def log_error(action, types=(Exception,)):
     if not action.startswith("!"):
@@ -75,40 +60,34 @@ def log_error(action, types=(Exception,)):
         raise
 
 
-def gather_hw_info_paramiko(fuel_master_ip, fuel_login, fuel_passwd,
-                            cluster_id):
-    import paramiko
-    ssh = paramiko.SSHClient()
-    ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+CMDS = ["lscpu",
+        "lspci -vv -k -nn -t",
+        "blockdev --report",
+        "lsblk -atmf",
+        "dmidecode"]
+SSH_OPTS = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
+ssh_cmd_templ = "ssh {ssh_opts} root@{ip} {cmd}"
 
+
+def gather_hw_info_subprocess(ips, splitter='!' * 60):
+    res = []
     try:
-        ssh.connect(fuel_master_ip,
-                    timeout=60,
-                    username=fuel_login,
-                    password=fuel_passwd,
-                    look_for_keys=False)
-
-        cmd = cmd_templ.format(cluster_id, "!!!!!!!!!!!!!!!!!!!!!!!!!")
-        stdin, stdout, stderr = ssh.exec_command(cmd, timeout=600)
-        return stdout.read()
+        for ip in ips:
+            logger.info("Gathering HW info for " + str(ip))
+            for cmd in CMDS:
+                ssh_cmd = ssh_cmd_templ.format(ssh_opts=SSH_OPTS,
+                                               ip=ip,
+                                               cmd=cmd)
+                res.append(splitter)
+                res.append(cmd)
+                res.append(splitter)
+                p = subprocess.Popen(ssh_cmd, shell=True,
+                                     stdout=subprocess.PIPE,
+                                     stderr=subprocess.STDOUT)
+                res.append(p.stdout.read())
+        return "\n".join(res)
     except Exception as exc:
-        return "HW info gathering failed! Error: {0}".format(exc.message)
-
-
-def gather_hw_info_subprocess(fuel_master_ip, fuel_login, fuel_passwd,
-                              cluster_id):
-    try:
-        ssh_opts = "-o UserKnownHostsFile=/dev/null"
-        ssh_opts += " -o StrictHostKeyChecking=no"
-        ssh_templ = "ssh {opts} {0}@{1} {2}"
-        cmd = cmd_templ.format(cluster_id, "!!!!!!!!!!!!!!!!!!!!!!!!!")
-        ssh_cmd = ssh_templ.format(fuel_login, fuel_master_ip, cmd,
-                                   opts=ssh_opts)
-        p = subprocess.Popen(ssh_cmd, shell=True,
-                             stdout=subprocess.PIPE,
-                             stderr=subprocess.STDOUT)
-        return p.stdout.read()
-    except Exception as exc:
+        raise
         return "HW info gathering failed! Error: {0}".format(exc.message)
 
 
@@ -225,7 +204,8 @@ def make_user_to_setup_networks(url):
     return resp == 'ready'
 
 
-def deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes):
+def deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes,
+                   ignore_task_errors=False):
 
     msg_templ = "Waiting till at least {0} nodes became available"
     logger.info(msg_templ.format(min_nodes))
@@ -248,7 +228,7 @@ def deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes):
                 "You may follow deployment process in FUEL UI " +
                 "in you browser")
 
-    cluster.deploy(deploy_timeout)
+    cluster.deploy(deploy_timeout, ignore_task_errors=ignore_task_errors)
     return cluster
 
 
@@ -262,7 +242,7 @@ def delete_if_exists(conn, name):
 
 @contextlib.contextmanager
 def make_cluster(conn, cluster_desc, deploy_timeout, min_nodes,
-                 reuse_cluster_id=None):
+                 reuse_cluster_id=None, ignore_task_errors=False):
     if reuse_cluster_id is None:
         for cluster_obj in fuel_rest_api.get_all_clusters(conn):
             if cluster_obj.name == cluster_desc['name']:
@@ -274,7 +254,8 @@ def make_cluster(conn, cluster_desc, deploy_timeout, min_nodes,
 
         logger.info("Start deploying cluster")
 
-        c = deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes)
+        c = deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes,
+                           ignore_task_errors=ignore_task_errors)
 
         with log_error("!Get list of nodes"):
             nodes = list(c.get_nodes())
@@ -356,6 +337,10 @@ def parse_command_line(argv):
                         help='ssh credentials for fuel node login:passwd',
                         default=None, dest="fuel_ssh_creds")
 
+    parser.add_argument('--ignore-task-errors',
+                        help='ignore task errors',
+                        default=False, action="store_true")
+
     ll = "CRITICAL ERROR WARNING INFO DEBUG NOTSET".split()
     parser.add_argument('--log-level',
                         help='loging level',
@@ -388,13 +373,16 @@ def parse_command_line(argv):
 
 
 def run_tests(conn, config, test_run_timeout,
-              deploy_timeout, min_nodes, fuel_ssh_creds,
-              reuse_cluster_id=None):
+              deploy_timeout, min_nodes,
+              fuel_ssh_creds=None,
+              reuse_cluster_id=None,
+              ignore_task_errors=False):
     tests_results = []
 
     cont_man = make_cluster(conn, config['cluster_desc'],
                             deploy_timeout, min_nodes,
-                            reuse_cluster_id=reuse_cluster_id)
+                            reuse_cluster_id=reuse_cluster_id,
+                            ignore_task_errors=ignore_task_errors)
 
     with cont_man as cluster:
         logger.info("Cluster ready!")
@@ -435,11 +423,12 @@ def run_tests(conn, config, test_run_timeout,
                 nodes_info.append(node)
 
         hw_info = []
-        if fuel_ssh_creds is not None:
-            logger.info("Gathering hardware info")
-            name, passwd = fuel_ssh_creds.split(":", 1)
-            hw_info.append(gather_hw_info_subprocess(conn.host(), name,
-                                                     passwd, cluster.id))
+        logger.info("Gathering hardware info")
+        ips = []
+        for node in cluster.get_nodes():
+            ips.append(node.get_ip("fuelweb_admin"))
+
+        hw_info.append(gather_hw_info_subprocess(ips))
 
     return tests_results, nodes_info, hw_info
 
@@ -460,7 +449,7 @@ def login(fuel_url, creds):
 
 
 header = """
-           MOS hardware certification run results
+   Mirantis Openstack hardware certification run results
 -----------------------------------------------------------
 Date: {date}
 Test version: {version}
@@ -565,9 +554,10 @@ def make_report(results, nodes_info, hw_info):
             ln = "{0} {1} {2} GiB".format(disk['name'], disk['model'], sz_gib)
             disks_info_lines[ln] = disks_info_lines.get(ln, 0) + 1
 
+        itm = disks_info_lines.items()
         node_info['disks_info'] = "\n".join(
                                     "    {0} x {1}".format(descr, count)
-                        for descr, count in disks_info_lines.items())
+                                    for descr, count in itm)
 
         # -----------------------------------------------------------------------------------
         node_info['interfaces_count'] = len(meta['interfaces'])
@@ -645,7 +635,8 @@ def main(argv):
                     args.deploy_timeout * 60,
                     args.min_nodes,
                     args.fuel_ssh_creds,
-                    reuse_cluster_id=args.reuse_cluster)
+                    reuse_cluster_id=args.reuse_cluster,
+                    ignore_task_errors=args.ignore_task_errors)
 
     results, nodes_info, hw_info = res
 
