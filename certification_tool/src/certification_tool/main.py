@@ -341,6 +341,10 @@ def parse_command_line(argv):
                         help='ignore task errors',
                         default=False, action="store_true")
 
+    parser.add_argument('--hw-report-only',
+                        help='Only generate hardware report',
+                        default=False, action="store_true")
+
     ll = "CRITICAL ERROR WARNING INFO DEBUG NOTSET".split()
     parser.add_argument('--log-level',
                         help='loging level',
@@ -376,7 +380,8 @@ def run_tests(conn, config, test_run_timeout,
               deploy_timeout, min_nodes,
               fuel_ssh_creds=None,
               reuse_cluster_id=None,
-              ignore_task_errors=False):
+              ignore_task_errors=False,
+              hw_report_only=False):
     tests_results = []
 
     cont_man = make_cluster(conn, config['cluster_desc'],
@@ -387,35 +392,40 @@ def run_tests(conn, config, test_run_timeout,
     with cont_man as cluster:
         logger.info("Cluster ready!")
 
-        with log_error("Start tests"):
-            results = run_all_ostf_tests(conn,
-                                         cluster.id,
-                                         test_run_timeout)
+        if not hw_report_only:
+            with log_error("Start tests"):
+                results = run_all_ostf_tests(conn,
+                                             cluster.id,
+                                             test_run_timeout)
 
-        for testset in results:
-            tests_results.extend(testset['tests'])
+            for testset in results:
+                tests_results.extend(testset['tests'])
 
-        failed_tests = [test for test in results
-                        if test['status'] == 'failure']
+            failed_tests = [test for test in results
+                            if test['status'] == 'failure']
 
-        if len(failed_tests) != 0:
-            templ = "Tests finished. {0} test are done," + \
-                    " {1} test are failed : {2}"
+            if len(failed_tests) != 0:
+                templ = "Tests finished. {0} test are done," + \
+                        " {1} test are failed : {2}"
 
-            names = [tests_results['name']
-                     for tests_results in failed_tests]
+                names = [tests_results['name']
+                         for tests_results in failed_tests]
 
-            msg = templ.format(len(tests_results),
-                               len(failed_tests),
-                               ", ".join(names))
-            logger.info(msg)
+                msg = templ.format(len(tests_results),
+                                   len(failed_tests),
+                                   ", ".join(names))
+                logger.info(msg)
+            else:
+                logger.info("All tests passed successfully!")
+
+            for test in failed_tests:
+                logger.error(test['name'])
+                logger.error(" " * 10 + 'Failure message: '
+                             + test['message'])
+
         else:
-            logger.info("All tests passed successfully!")
-
-        for test in failed_tests:
-            logger.error(test['name'])
-            logger.error(" " * 10 + 'Failure message: '
-                         + test['message'])
+            logger.info("Tests skipped")
+            tests_results = []
 
         nodes_info = []
         for node in conn.get('/api/nodes'):
@@ -636,7 +646,8 @@ def main(argv):
                     args.min_nodes,
                     args.fuel_ssh_creds,
                     reuse_cluster_id=args.reuse_cluster,
-                    ignore_task_errors=args.ignore_task_errors)
+                    ignore_task_errors=args.ignore_task_errors,
+                    hw_report_only=args.hw_report_only)
 
     results, nodes_info, hw_info = res
 
