@@ -404,7 +404,7 @@ class Cluster(RestObj):
                         ok = False
                     else:
                         raise Exception('Task execution error' +
-                                        pprint.pformat(task.__dict__))
+                                        pprint.pformat(task))
                 elif task['status'] != 'ready':
                     ok = False
             return ok

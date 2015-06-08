@@ -337,6 +337,10 @@ def parse_command_line(argv):
                         help='ssh credentials for fuel node login:passwd',
                         default=None, dest="fuel_ssh_creds")
 
+    parser.add_argument('--distrib',
+                        help='Linux distribution - ubuntu or centos',
+                        default='ubuntu', choices=('ubuntu', 'centos'))
+
     parser.add_argument('--ignore-task-errors',
                         help='ignore task errors',
                         default=False, action="store_true")
@@ -381,10 +385,14 @@ def run_tests(conn, config, test_run_timeout,
               fuel_ssh_creds=None,
               reuse_cluster_id=None,
               ignore_task_errors=False,
-              hw_report_only=False):
+              hw_report_only=False,
+              distrib='ubuntu'):
     tests_results = []
+    cdescr = config['cluster_desc'].copy()
 
-    cont_man = make_cluster(conn, config['cluster_desc'],
+    cdescr['release'] = '1' if distrib == 'centos' else '2'
+
+    cont_man = make_cluster(conn, cdescr,
                             deploy_timeout, min_nodes,
                             reuse_cluster_id=reuse_cluster_id,
                             ignore_task_errors=ignore_task_errors)
@@ -647,7 +655,8 @@ def main(argv):
                     args.fuel_ssh_creds,
                     reuse_cluster_id=args.reuse_cluster,
                     ignore_task_errors=args.ignore_task_errors,
-                    hw_report_only=args.hw_report_only)
+                    hw_report_only=args.hw_report_only,
+                    distrib=args.distrib)
 
     results, nodes_info, hw_info = res
 
