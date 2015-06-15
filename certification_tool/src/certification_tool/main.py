@@ -60,19 +60,27 @@ def log_error(action, types=(Exception,)):
         raise
 
 
-CMDS = ["lscpu",
-        "lspci -vv -k -nn -t",
-        "blockdev --report",
-        "lsblk -atmf",
+CMDS = ["lshw -xml",
+        # "lspci -vv -k -nn -t",
+        # "blockdev --report",
+        # "lsblk -atmf",
         "dmidecode"]
+# CMDS = ["lscpu",
+#         "lspci -vv -k -nn -t",
+#         "blockdev --report",
+#         "lsblk -atmf",
+#         "dmidecode"]
 SSH_OPTS = "-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no"
 ssh_cmd_templ = "ssh {ssh_opts} root@{ip} {cmd}"
 
 
-def gather_hw_info_subprocess(ips, splitter='!' * 60):
+def gather_hw_info_subprocess(nodes, splitter='!' * 60):
     res = []
     try:
-        for ip in ips:
+        for node in nodes:
+            res.append(splitter)
+            res.append("Node: %s %s" % (node.ip, " ".join(node.roles)))
+            ip = node.ip
             logger.info("Gathering HW info for " + str(ip))
             for cmd in CMDS:
                 ssh_cmd = ssh_cmd_templ.format(ssh_opts=SSH_OPTS,
@@ -333,10 +341,6 @@ def parse_command_line(argv):
                         help='minimal required nodes amount',
                         default=2, type=int, dest="min_nodes")
 
-    parser.add_argument('--fuel-ssh-creds',
-                        help='ssh credentials for fuel node login:passwd',
-                        default=None, dest="fuel_ssh_creds")
-
     parser.add_argument('--distrib',
                         help='Linux distribution - ubuntu or centos',
                         default='ubuntu', choices=('ubuntu', 'centos'))
@@ -382,11 +386,16 @@ def parse_command_line(argv):
 
 def run_tests(conn, config, test_run_timeout,
               deploy_timeout, min_nodes,
-              fuel_ssh_creds=None,
               reuse_cluster_id=None,
               ignore_task_errors=False,
               hw_report_only=False,
               distrib='ubuntu'):
+
+    if hw_report_only and not reuse_cluster_id:
+        nodes = fuel_rest_api.FuelInfo(conn).nodes
+        hw_info = gather_hw_info_subprocess(nodes)
+        return [], [], [hw_info]
+
     tests_results = []
     cdescr = config['cluster_desc'].copy()
 
@@ -446,7 +455,7 @@ def run_tests(conn, config, test_run_timeout,
         for node in cluster.get_nodes():
             ips.append(node.get_ip("fuelweb_admin"))
 
-        hw_info.append(gather_hw_info_subprocess(ips))
+        hw_info.append(gather_hw_info_subprocess(cluster.get_nodes()))
 
     return tests_results, nodes_info, hw_info
 
@@ -647,12 +656,15 @@ def main(argv):
 
     test_run_timeout = cluster_config.get('testrun_timeout', 3600)
 
+    if not args.min_nodes >= 2:
+        log_error("Min nodes should be more than 2")
+        return 1
+
     res = run_tests(conn,
                     cluster_config,
                     test_run_timeout,
                     args.deploy_timeout * 60,
                     args.min_nodes,
-                    args.fuel_ssh_creds,
                     reuse_cluster_id=args.reuse_cluster,
                     ignore_task_errors=args.ignore_task_errors,
                     hw_report_only=args.hw_report_only,

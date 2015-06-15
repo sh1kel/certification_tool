@@ -35,7 +35,7 @@ HW Verification tool usage
 
 		$ ./cert_tool.sh -a admin:admin:admin --min-nodes 10 http://172.16.50.200:8000/
 
-* Follow the mesages. When all slave nodes would be ready tool would create 
+* Follow the messages. When all slave nodes would be ready tool would create
   test cluster and ask you to setup network parameters:
 
 		> Please go to FUEL_CLUSTER_URL and configure network parameters. Then input 'ready' to continue :
@@ -44,8 +44,8 @@ HW Verification tool usage
   required network, parameters, accordingly to 
   http://docs.mirantis.com/openstack/fuel/fuel-6.0/user-guide.html#neutron-network-settings
 
-  Then type 'ready' and press enter. Tool shoud proceede with clusater 
+  Then type 'ready' and press enter. Tool should proceed with cluster
   installation. When installation finishes tool would run test and print report
-  to screen. Also report would be save into filewitj name like 
+  to screen. Also report would be save into file with name like
   HW_cert_report_XXXX.txt, where XXXX would be current unix time.
 

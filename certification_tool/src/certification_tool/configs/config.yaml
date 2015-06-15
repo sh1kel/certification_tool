@@ -14,7 +14,7 @@ report:
 
 cluster_desc:
     name: certification_cluster
-    deployment_mode: multinode
+    deployment_mode: ha_compact
     net_provider: neutron_vlan
     libvirt_type: kvm
     release: "2"
