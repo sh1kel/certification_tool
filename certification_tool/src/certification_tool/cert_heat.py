@@ -9,7 +9,7 @@ from argparse import ArgumentParser
 from certification_tool import fuel_rest_api
 
 
-logger = logging.getLogger("certification")
+logger = logging.getLogger("validation")
 
 
 def create_empty_cluster(conn, cluster_desc,

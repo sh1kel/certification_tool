@@ -21,7 +21,7 @@ cert_dir = os.path.dirname(certification_tool.__file__)
 DEFAULT_CONFIG_PATH = os.path.join(cert_dir, "configs", "config.yaml")
 
 
-logger = logging.getLogger("certification")
+logger = logging.getLogger("validation")
 
 
 def setup_logger(log_config_file, log_level):
@@ -331,7 +331,7 @@ def parse_command_line(argv):
     parser.add_argument('-a', '--auth',
                         help='keystone credentials in format '
                              'tenant_name:username:password',
-                        dest="creds", default=None)
+                        dest="creds", default="admin:admin:admin")
 
     parser.add_argument('--deploy-timeout',
                         help='deploy timeout in minutes',
@@ -359,6 +359,8 @@ def parse_command_line(argv):
                         choices=ll, dest="log_level",
                         default=None)
 
+    parser.add_argument("--fuel-ssh-creds", help="Depricated")
+
     # sending mail is disabled for now
     # parser.add_argument('-p', '--password',
     #                     help='password for email', default=None)
@@ -379,7 +381,8 @@ def parse_command_line(argv):
     parser.add_argument('--save-report-to', default=None,
                         metavar="RESULT_FILE", help="save report to file")
 
-    parser.add_argument('fuelurl', help='fuel rest url', metavar="FUEL_URL")
+    parser.add_argument('fuelurl', help='fuel rest url', nargs="?",
+                        metavar="FUEL_URL", default="http://localhost:8000")
 
     return parser.parse_args(argv)
 
@@ -476,7 +479,7 @@ def login(fuel_url, creds):
 
 
 header = """
-   Mirantis Openstack hardware certification run results
+   Mirantis Openstack hardware validation run results
 -----------------------------------------------------------
 Date: {date}
 Test version: {version}
@@ -592,7 +595,7 @@ def make_report(results, nodes_info, hw_info):
         net_info_lines = []
         for interface in meta['interfaces']:
             if interface['current_speed'] is not None:
-                speed = int(interface['current_speed']) / (1024 ** 2)
+                speed = interface['current_speed']
             else:
                 speed = "Unknown"
 
@@ -684,7 +687,7 @@ def main(argv):
         print report
 
     if args.save_report_to is None:
-        fname = "HW_cert_report_{0}.txt".format(time.time())
+        fname = "HW_validation_report_{0}.txt".format(time.time())
     else:
         fname = args.save_report_to
 
