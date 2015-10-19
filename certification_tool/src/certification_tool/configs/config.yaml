@@ -21,4 +21,4 @@ cluster_desc:
 
     nodes:
         - controller, 1
-        - compute + cinder, 2+
+        - compute + cinder, 1+
