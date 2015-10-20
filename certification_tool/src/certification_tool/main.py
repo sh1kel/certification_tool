@@ -330,7 +330,7 @@ def parse_command_line(argv):
 
     parser.add_argument('-a', '--auth',
                         help='keystone credentials in format '
-                             'tenant_name:username:password',
+                             'username:password:tenant_name',
                         dest="creds", default="admin:admin:admin")
 
     parser.add_argument('--deploy-timeout',
@@ -359,7 +359,7 @@ def parse_command_line(argv):
                         choices=ll, dest="log_level",
                         default=None)
 
-    parser.add_argument("--fuel-ssh-creds", help="Depricated")
+    #parser.add_argument("--fuel-ssh-creds", help="Depricated")
 
     # sending mail is disabled for now
     # parser.add_argument('-p', '--password',
