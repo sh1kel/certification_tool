@@ -1,22 +1,35 @@
 #!/bin/bash
-set -e
 
+set -o errexit
+
+# -----BEGIN_BUNDLE_BODY-----
 function clean {
-	local dirname=$1
-	if test -e "$dirname" ; then
-		rm -rf "$dirname"
-	fi
+    local dirname=$1
+    if test -e "$dirname" ; then
+        rm -rf "$dirname"
+    fi
 }
 
 function extract {
-	local tempo_folder=$1
-	ARCHIVE=`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' $0`
-	mkdir "$tempo_folder"
-	tail -n+$ARCHIVE $0 | tar xzv -C $tempo_folder >/dev/null
+    local tempo_folder=$1
+    ARCHIVE=`awk '/^__ARCHIVE_BELOW__/ {print NR + 1; exit 0; }' $0`
+    mkdir "$tempo_folder"
+    tail -n+$ARCHIVE $0 | tar xzv -C $tempo_folder >/dev/null
+}
+
+function extract_base64 {
+    local bundle=$0
+    local tempo_folder=$1
+    mkdir -p "$tempo_folder"
+    awk '
+$2 == "-----END_BUNDLE_ARCHIVE-----" {exit}
+f == 1 {print $2; next}
+$2 == "-----BEGIN_BUNDLE_ARCHIVE-----" {f=1;next}
+' "${bundle}" | base64 -d | tar xzv -C "${tempo_folder}"
 }
 
 function usage {
-	echo "CERT_TOOL_SHELL FUEL_URL FUEL_CREDENTIALS"
+    echo "CERT_TOOL_SHELL FUEL_URL FUEL_CREDENTIALS"
 }
 
 # function check_params {
@@ -48,21 +61,22 @@ function usage {
 # }
 
 function main {
-	local tempo_folder=$(mktemp -p /tmp fuel-XXXXXXXX)
-	rm $tempo_folder
+    local tempo_folder=$(mktemp -p /tmp fuel-XXXXXXXX)
+    rm $tempo_folder
 
-	# check_params $@
+    # check_params $@
 
-	clean "$tempo_folder"
-	extract "$tempo_folder"
+    clean "$tempo_folder"
+    extract_base64 "$tempo_folder"
 
-	PYTHONPATH="$tempo_folder:$PYTHONPATH" python $tempo_folder/certification_tool/main.py $@
+    PYTHONPATH="$tempo_folder:$PYTHONPATH" python $tempo_folder/certification_tool/main.py $@
 
-	clean "$tempo_folder"
+    clean "$tempo_folder"
 }
 
 main $@
 
 exit 0
+# -----END_BUNDLE_BODY-----
 
 __ARCHIVE_BELOW__
