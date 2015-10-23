@@ -1,19 +1,42 @@
 #!/bin/sh
-set -e
-set -x
 
-CERT_PATH=$1
+set -o errexit
+
+CERT_PATH=${1:-../src}
+
+if [ -z "${CERT_PATH}" ]; then
+    exit
+fi
 
 SCRIPT_TEMPL='run_tool.sh'
-RESULT=`mktemp -p /tmp fuel-XXXXXXXX.sh`
-TMP_ARCHIVE_PATH=`mktemp -p /tmp fuel-XXXXXXXX`
+RESULT=$(mktemp -p /tmp fuel-XXXXXXXX.sh)
 
-cd `dirname $CERT_PATH`
-tar -pczf "$TMP_ARCHIVE_PATH" `basename $CERT_PATH`
-cd -
+{
+    cat << EOF
+#!/bin/bash
 
-cp "$SCRIPT_TEMPL" "$RESULT"
-cat "$TMP_ARCHIVE_PATH" >> "$RESULT"
+set -o errexit
 
-rm "$TMP_ARCHIVE_PATH"
-echo "store result in $RESULT"
+EOF
+
+    awk '
+$2 == "-----END_BUNDLE_BODY-----" {print $0; exit}
+f == 1 {print $0; next}
+$2 == "-----BEGIN_BUNDLE_BODY-----" {f=1; print $0; next}
+' "${SCRIPT_TEMPL}"
+
+    echo ''
+    echo '# -----BEGIN_CHANGELOG-----'
+    git log --pretty=format:"[%an]%n%h  %cd%n*  %s%n" -n 10 \
+      | awk '{print "# " $0}'
+    echo '# -----END_CHANGELOG-----'
+
+    echo ''
+    echo '# -----BEGIN_BUNDLE_ARCHIVE-----'
+    tar -cz -C "${CERT_PATH}" . | base64 \
+      | awk '{print "# " $0}'
+    echo '# -----END_BUNDLE_ARCHIVE-----'
+} > "${RESULT}"
+
+echo "store result in '${RESULT}'"
+
