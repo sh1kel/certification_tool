@@ -14,7 +14,7 @@ from keystoneclient.v2_0 import Client as keystoneclient
 from keystoneclient import exceptions
 
 
-logger = logging.getLogger("certification")
+logger = logging.getLogger("validation")
 
 
 # HTTP Engine ---------------------------------------------------------------
