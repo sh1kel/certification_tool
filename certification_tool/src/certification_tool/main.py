@@ -122,20 +122,14 @@ def run_all_ostf_tests(conn, cluster_id, timeout):
         yield conn.get('/ostf/testruns/{0}'.format(run_id))
 
 
-def match_nodes(conn, min_nodes, probe_cnt):
+def match_nodes(conn, min_nodes):
     results = []
-    attempts = probe_cnt
 
     while True:
         nodes = [node for node in fuel_rest_api.get_all_nodes(conn)
                  if node.cluster is None]
 
         if len(nodes) < min_nodes:
-            if probe_cnt <= 0:
-                templ_err = "After {0} attempts only {1} nodes available, but {2} requires."
-                log_error(templ_err.formant(attempts, len(nodes), min_nodes))
-                probe_cnt -= 1
-                break
             templ = "Only {0} nodes available. {1} requires. Wait 60 sec"
             logger.info(templ.format(len(nodes), min_nodes))
             time.sleep(60)
@@ -219,12 +213,12 @@ def make_user_to_setup_networks(url):
 
 
 def deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes,
-                    probe_cnt, ignore_task_errors=False):
+                   ignore_task_errors=False):
 
     msg_templ = "Waiting till at least {0} nodes became available"
     logger.info(msg_templ.format(min_nodes))
 
-    cluster = cert_heat.create_cluster(conn, cluster_desc, probe_cnt)
+    cluster = cert_heat.create_cluster(conn, cluster_desc)
 
     url = "%s/#cluster/%s/nodes" % (conn.root_url, cluster.id)
 
@@ -255,7 +249,7 @@ def delete_if_exists(conn, name):
 
 
 @contextlib.contextmanager
-def make_cluster(conn, cluster_desc, deploy_timeout, min_nodes,  probe_cnt,
+def make_cluster(conn, cluster_desc, deploy_timeout, min_nodes,
                  reuse_cluster_id=None, ignore_task_errors=False):
     if reuse_cluster_id is None:
         for cluster_obj in fuel_rest_api.get_all_clusters(conn):
@@ -268,7 +262,7 @@ def make_cluster(conn, cluster_desc, deploy_timeout, min_nodes,  probe_cnt,
 
         logger.info("Start deploying cluster")
 
-        c = deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes, probe_cnt,
+        c = deploy_cluster(conn, cluster_desc, deploy_timeout, min_nodes,
                            ignore_task_errors=ignore_task_errors)
 
         with log_error("!Get list of nodes"):
@@ -390,15 +384,11 @@ def parse_command_line(argv):
     parser.add_argument('fuelurl', help='fuel rest url', nargs="?",
                         metavar="FUEL_URL", default="http://localhost:8000")
 
-    parser.add_argument('--wait-nodes', type=int,
-                        help="Time waiting available min-nodes will appeared",
-                        default=20, dest="probe_cnt")
-
     return parser.parse_args(argv)
 
 
 def run_tests(conn, config, test_run_timeout,
-              deploy_timeout, min_nodes,  probe_cnt,
+              deploy_timeout, min_nodes,
               reuse_cluster_id=None,
               ignore_task_errors=False,
               hw_report_only=False,
@@ -415,7 +405,7 @@ def run_tests(conn, config, test_run_timeout,
     cdescr['release'] = '1' if distrib == 'centos' else '2'
 
     cont_man = make_cluster(conn, cdescr,
-                            deploy_timeout, min_nodes,  probe_cnt,
+                            deploy_timeout, min_nodes,
                             reuse_cluster_id=reuse_cluster_id,
                             ignore_task_errors=ignore_task_errors)
 

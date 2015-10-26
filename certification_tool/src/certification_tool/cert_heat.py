@@ -248,8 +248,8 @@ def set_networks_params(cluster, net_settings):
     cluster.configure_networks(**configuration)
 
 
-def create_cluster(conn, cluster, probe_cnt):
-    nodes_iter = match_nodes(conn, cluster['nodes'], probe_cnt)
+def create_cluster(conn, cluster):
+    nodes_iter = match_nodes(conn, cluster['nodes'])
 
     use_ceph = False
 
