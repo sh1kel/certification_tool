@@ -60,7 +60,7 @@ def log_error(action, types=(Exception,)):
         raise
 
 
-CMDS = ["lshw -xml",
+CMDS = ["lshw -json",
         # "lspci -vv -k -nn -t",
         # "blockdev --report",
         # "lsblk -atmf",
@@ -483,6 +483,7 @@ header = """
 -----------------------------------------------------------
 Date: {date}
 Test version: {version}
+Fuel version: {f_ver}
 -----------------------------------------------------------
 """
 
@@ -512,11 +513,13 @@ Interfaces: {interfaces_count}
 REPORT_WITH = 60
 
 
-def make_report(results, nodes_info, hw_info):
+def make_report(results, nodes_info, hw_info, conn):
     dt = datetime.datetime.now()
-
+    fuel_info = fuel_rest_api.FuelInfo(conn)
+    fuel_version = fuel_info.get_version()
     report = header.format(date=dt.strftime("%d %b %Y %H:%M"),
-                           version=certification_tool.__version__)
+                           version=certification_tool.__version__,
+                           f_ver=fuel_version)
 
     failed = [res for res in results if res['status'] != 'success']
     success = [res for res in results if res['status'] == 'success']
@@ -667,7 +670,7 @@ def main(argv):
                     cluster_config,
                     test_run_timeout,
                     args.deploy_timeout * 60,
-                    args.min_nodes,  args.probe_cnt, 
+                    args.min_nodes, 
                     reuse_cluster_id=args.reuse_cluster,
                     ignore_task_errors=args.ignore_task_errors,
                     hw_report_only=args.hw_report_only,
@@ -681,7 +684,7 @@ def main(argv):
     #    cs.send_results(email_for_results, results)
 
     # make and store report
-    report, hw_report = make_report(results, nodes_info, hw_info)
+    report, hw_report = make_report(results, nodes_info, hw_info, conn)
 
     if not args.quiet:
         print report

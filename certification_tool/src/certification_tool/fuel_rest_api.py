@@ -212,12 +212,13 @@ class FuelInfo(RestObj):
     get_nodes = GET('api/nodes')
     get_clusters = GET('api/clusters')
     get_cluster = GET('api/clusters/{id}')
+    get_info = GET('api/releases')
 
     @property
     def nodes(self):
         """Get all fuel nodes"""
         return NodeList([Node(self.__connection__, **node) for node
-                         in self.get_nodes()])
+                         in self.get_nodes() if node['online']])
 
     @property
     def free_nodes(self):
@@ -230,6 +231,16 @@ class FuelInfo(RestObj):
         """List clusters in fuel"""
         return [Cluster(self.__connection__, **cluster) for cluster
                 in self.get_clusters()]
+    
+    def get_version(self):
+	for info in self.get_info():
+            vers = info['version'].split("-")[1].split('.')
+        #info = self.get_info()
+	#vers = info['version'].split("-")[1].split('.')
+	return vers
+        #vers = info['version'].split("-")[1].split('.')
+        #return self.get_info()
+        #raise ValueError("No version found")
 
 
 class Node(RestObj):
