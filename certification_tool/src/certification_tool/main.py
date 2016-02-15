@@ -60,7 +60,7 @@ def log_error(action, types=(Exception,)):
         raise
 
 
-CMDS = ["lshw -json",
+CMDS = ["lshw -xml",
         # "lspci -vv -k -nn -t",
         # "blockdev --report",
         # "lsblk -atmf",
@@ -516,10 +516,12 @@ REPORT_WITH = 60
 def make_report(results, nodes_info, hw_info, conn):
     dt = datetime.datetime.now()
     fuel_info = fuel_rest_api.FuelInfo(conn)
-    fuel_version = fuel_info.get_version()
+    fuel_version_list = fuel_info.get_version()
+    [str(fv) for fv in fuel_version_list]
+    fuel_version_str = ".".join(fuel_version_list)
     report = header.format(date=dt.strftime("%d %b %Y %H:%M"),
                            version=certification_tool.__version__,
-                           f_ver=fuel_version)
+                           f_ver=fuel_version_str)
 
     failed = [res for res in results if res['status'] != 'success']
     success = [res for res in results if res['status'] == 'success']
