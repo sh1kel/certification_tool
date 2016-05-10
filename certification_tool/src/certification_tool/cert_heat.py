@@ -122,8 +122,8 @@ def match_nodes(conn, cluster, max_nodes=None):
             continue
         break
 
-    if len(raw_nodes) <= 1:
-        raise ValueError("Nodes amount should be not less, than 2")
+    if len(raw_nodes) < 1:
+        raise ValueError("Nodes amount should be not less, than 1")
 
     cpu_disk = []
     for raw_node in raw_nodes:

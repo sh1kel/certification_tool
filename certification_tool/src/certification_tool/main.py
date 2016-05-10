@@ -64,7 +64,7 @@ CMDS = ["lshw -xml",
         # "lspci -vv -k -nn -t",
         # "blockdev --report",
         # "lsblk -atmf",
-        "dmidecode"]
+        #"dmidecode"]
 # CMDS = ["lscpu",
 #         "lspci -vv -k -nn -t",
 #         "blockdev --report",
@@ -135,7 +135,7 @@ def match_nodes(conn, min_nodes):
             time.sleep(60)
             continue
 
-        if len(nodes) <= 1:
+        if len(nodes) < 1:
             raise ValueError("Nodes amount should be not less, than 2")
 
         cpu_disk = []
@@ -339,7 +339,7 @@ def parse_command_line(argv):
 
     parser.add_argument('--min-nodes',
                         help='minimal required nodes amount',
-                        default=2, type=int, dest="min_nodes")
+                        default=1, type=int, dest="min_nodes")
 
     parser.add_argument('--distrib',
                         help='Linux distribution - ubuntu or centos',
@@ -351,7 +351,7 @@ def parse_command_line(argv):
 
     parser.add_argument('--hw-report-only',
                         help='Only generate hardware report',
-                        default=False, action="store_true")
+                        default=True, action="store_true")
 
     ll = "CRITICAL ERROR WARNING INFO DEBUG NOTSET".split()
     parser.add_argument('--log-level',
@@ -664,8 +664,8 @@ def main(argv):
 
     test_run_timeout = cluster_config.get('testrun_timeout', 3600)
 
-    if not args.min_nodes >= 2:
-        log_error("Min nodes should be more than 2")
+    if not args.min_nodes >= 1:
+        log_error("Min nodes should be more than 1")
         return 1
 
     res = run_tests(conn,
