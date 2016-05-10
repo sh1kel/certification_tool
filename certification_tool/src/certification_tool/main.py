@@ -60,7 +60,7 @@ def log_error(action, types=(Exception,)):
         raise
 
 
-CMDS = ["lshw -xml",
+CMDS = ["lshw -xml",]
         # "lspci -vv -k -nn -t",
         # "blockdev --report",
         # "lsblk -atmf",
